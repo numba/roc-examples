@@ -126,5 +126,7 @@ class NumbaHsaEngine(NumbaEngine):
 
 
 def register():
+    from numba.hsa import is_available
+    assert is_available()
     engines._engines['numba.cpu'] = NumbaCpuEngine
     engines._engines['numba.hsa'] = NumbaHsaEngine

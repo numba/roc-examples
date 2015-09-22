@@ -8,5 +8,5 @@ Its adds two numba evaluation engines--a CPU backend and a HSA GPU backend.
 Software Requirement
 --------------------
 
-* numba: development version of 0.21.0 that is not yet released
+* numba: development version of 0.22.0 that is not yet released
 * pandas: development version of 0.17.0 that is not yet released
