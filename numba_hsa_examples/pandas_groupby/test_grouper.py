@@ -4,16 +4,14 @@ import pandas as pd
 import numpy as np
 from numba import unittest_support as unittest
 
-from .groupby import HSAGrouper
+from .groupby import HSAGrouper, SPEED_BARRIER
 
 
 class TestCustomGrouper(unittest.TestCase):
-    def make_groupers(self):
-        nelem = 10
-        numgroup = 4
+    def make_groupers(self, nelem=10, numgroup=4):
         df = pd.DataFrame(
             {'a': np.random.randint(0, numgroup, nelem).astype(np.int32),
-             'b': np.random.randint(0, nelem, nelem).astype(np.int32)})
+             'b': np.random.random(nelem).astype(np.float64)})
         expected_grouper = df.groupby('a')
         got_grouper = df.groupby(HSAGrouper('a'))
         return expected_grouper, got_grouper
@@ -58,6 +56,30 @@ class TestCustomGrouper(unittest.TestCase):
         expect = expected_grouper.mean()
         got = got_grouper.mean()
         pd.util.testing.assert_frame_equal(expect, got)
+
+    def test_mean_larger(self):
+        nelem = int(2.5 * SPEED_BARRIER)
+        expected_grouper, got_grouper = self.make_groupers(nelem=nelem,
+                                                           numgroup=2)
+        expect = expected_grouper.mean()
+        got = got_grouper.mean()
+        pd.util.testing.assert_frame_equal(expect, got)
+
+    def test_var(self):
+        expected_grouper, got_grouper = self.make_groupers()
+        expect = expected_grouper.var()
+        got = got_grouper.var()
+        for x, y in zip(expect.values, got.values):
+            np.testing.assert_allclose(x, y)
+
+    def test_var_larger(self):
+        nelem = int(2.5 * SPEED_BARRIER)
+        expected_grouper, got_grouper = self.make_groupers(nelem=nelem,
+                                                           numgroup=2)
+        expect = expected_grouper.var()
+        got = got_grouper.var()
+        for x, y in zip(expect.values, got.values):
+            np.testing.assert_allclose(x, y)
 
 
 if __name__ == '__main__':

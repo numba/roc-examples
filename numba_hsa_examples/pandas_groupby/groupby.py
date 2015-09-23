@@ -9,12 +9,14 @@ from pandas.core.series import Series
 from pandas.core.frame import DataFrame
 import pandas.core.common as com
 
-
 from numba_hsa_examples.radixsort.sort_driver import HsaRadixSortDriver
+from numba import hsa, jit
 
+from numba_hsa_examples.reduction.reduction import device_reduce_sum
 
-class NotYet(NotImplementedError):
-    pass
+import logging
+
+_logger = logging.getLogger(__name__)
 
 
 class HSAGrouper(Grouper):
@@ -85,8 +87,8 @@ class HSAGrouper(Grouper):
         if (self.sort or sort) and not ax.is_monotonic:
             # The following line is different from the base class for
             # possible extension.
-            indexer = self.indexer = self._make_sorter(ax)
-            ax = ax.take(indexer)
+            ax, indexer = self._make_sorter(ax)
+            self.indexer = indexer
             obj = obj.take(indexer, axis=self.axis, convert=False,
                            is_copy=False)
 
@@ -100,9 +102,10 @@ class HSAGrouper(Grouper):
         """
         np_array = ax.get_values()
         # return np_array.argsort()
+        # ax = ax.take(indexer)
         sorter = HsaRadixSortDriver()
-        _, indices = sorter.sort_with_indices(np_array)
-        return indices
+        sorted_array, indices = sorter.sort_with_indices(np_array)
+        return sorted_array, indices
 
 
 def _get_grouper(obj, key=None, axis=0, level=None, sort=True):
@@ -239,9 +242,10 @@ def _get_grouper(obj, key=None, axis=0, level=None, sort=True):
 class CustomGrouper(BaseGrouper):
     def _aggregate(self, result, counts, values, agg_func, is_numeric):
         print("_aggregate", agg_func)
-        # TODO: Intercept aggregate that has a HSA equivalent
+        # NOTE: Intercept aggregate that has a HSA equivalent
         # The rest are the same as the base class. XXX call base class, perhaps?
         comp_ids, _, ngroups = self.group_info
+        print('values.ndim', values.ndim)
         if values.ndim > 3:
             # punting for now
             raise NotImplementedError("number of dimensions is currently "
@@ -251,6 +255,140 @@ class CustomGrouper(BaseGrouper):
                 chunk = chunk.squeeze()
                 agg_func(result[:, :, i], counts, chunk, comp_ids)
         else:
-            agg_func(result, counts, values, comp_ids)
+            try:
+                fn = _optimized_aggregate_functions.get(agg_func.__name__,
+                                                        agg_func)
+                fn(result, counts, values, comp_ids)
+            except:
+                import traceback
+                traceback.print_exc()
 
         return result
+
+
+SPEED_BARRIER = 10 ** 5 * 5
+
+
+def _hsa_group_agg(cpu_agg, gpu_agg, result, counts, values, comp_ids):
+    assert comp_ids.size == values.shape[0]
+    assert values.shape[1] == 1
+
+    from timeit import default_timer as timer
+
+    group_count(counts, comp_ids)
+
+    start = 0
+    for i, stop in enumerate(counts):
+        inputs = values[start:stop, 0]
+        if inputs.size < SPEED_BARRIER:
+            res = cpu_agg(inputs)
+        else:
+            tss = timer()
+            res = gpu_agg(inputs)
+            _logger.debug("%s runtime %s", gpu_agg.__name__, timer() - tss)
+        result[i, 0] = res
+
+        # next
+        start = stop
+
+
+def hsa_group_mean(result, counts, values, comp_ids):
+    def device_mean(inputs):
+        return device_reduce_sum(inputs) / inputs.size
+
+    def host_mean(inputs):
+        return inputs.mean()
+
+    _hsa_group_agg(host_mean, device_mean, result, counts, values, comp_ids)
+
+
+def hsa_group_var(result, counts, values, comp_ids):
+    def device_mean(inputs):
+        div = inputs.size - 1
+        if div == 0:
+            return NAN
+        mean = device_reduce_sum(inputs) / inputs.size
+        diff = np.empty(values.size, dtype=result.dtype)
+
+        nelem = inputs.size
+        threads = 512
+        groups = (nelem + threads - 1) // threads
+        hsa_var_diff_kernel[groups, threads](diff, inputs, mean)
+        psum = device_reduce_sum(diff)
+        return psum / div
+
+    def host_mean(inputs):
+        return comp_var(inputs, inputs.mean(), 1)
+
+    _hsa_group_agg(host_mean, device_mean, result, counts, values, comp_ids)
+
+
+NAN = float('nan')
+
+
+@hsa.jit
+def hsa_var_diff_kernel(diff, inputs, mean):
+    gid = hsa.get_global_id(0)
+    if gid < inputs.size:
+        val = inputs[gid]
+        x = val - mean
+        diff[gid] = x * x
+
+
+@jit(nopython=True)
+def comp_var(inp, mean, ddof):
+    psum = 0
+    for i in range(inp.size):
+        x = (inp[i] - mean)
+        xx = x * x
+        psum += xx
+    div = (inp.size - ddof)
+    if div == 0:
+        return NAN
+    return psum / div
+
+
+"""SAMPLE
+
+    _cython_functions = {
+        'add': 'group_add',
+        'prod': 'group_prod',
+        'min': 'group_min',
+        'max': 'group_max',
+        'mean': 'group_mean',
+        'median': {
+            'name': 'group_median'
+        },
+        'var': 'group_var',
+        'first': {
+            'name': 'group_nth',
+            'f': lambda func, a, b, c, d: func(a, b, c, d, 1)
+        },
+        'last': 'group_last',
+        'count': 'group_count',
+    }
+"""
+
+_optimized_aggregate_functions = {
+    'group_mean_float64': hsa_group_mean,
+    'group_var_float64': hsa_group_var,
+
+}
+
+
+@jit(nopython=True)
+def group_count(counts, comp_ids):
+    """
+    Store inclusive prefixsum of number of element per label into ``counts``.
+    The last element will be the total number of element.
+    """
+    # binning
+    for i in range(comp_ids.size):
+        val = comp_ids[i]
+        counts[val] += 1
+    # inclusive scan
+    total = 0
+    for i in range(counts.size):
+        ct = counts[i]
+        counts[i] = ct + total
+        total += ct
