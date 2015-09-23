@@ -10,6 +10,9 @@ from pandas.core.frame import DataFrame
 import pandas.core.common as com
 
 
+from numba_hsa_examples.radixsort.sort_driver import HsaRadixSortDriver
+
+
 class NotYet(NotImplementedError):
     pass
 
@@ -96,7 +99,10 @@ class HSAGrouper(Grouper):
         Returns the index that would sort the given axis `ax`.
         """
         np_array = ax.get_values()
-        return np_array.argsort()
+        # return np_array.argsort()
+        sorter = HsaRadixSortDriver()
+        _, indices = sorter.sort_with_indices(np_array)
+        return indices
 
 
 def _get_grouper(obj, key=None, axis=0, level=None, sort=True):
