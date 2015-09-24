@@ -1,10 +1,14 @@
 from __future__ import print_function
 
+import logging
+
 import pandas as pd
 import numpy as np
 from numba import unittest_support as unittest
 
 from .groupby import HSAGrouper, SPEED_BARRIER
+
+logging.basicConfig(level=logging.DEBUG)
 
 
 class TestCustomGrouper(unittest.TestCase):
@@ -63,6 +67,34 @@ class TestCustomGrouper(unittest.TestCase):
                                                            numgroup=2)
         expect = expected_grouper.mean()
         got = got_grouper.mean()
+        pd.util.testing.assert_frame_equal(expect, got)
+
+    def test_max(self):
+        expected_grouper, got_grouper = self.make_groupers()
+        expect = expected_grouper.max()
+        got = got_grouper.max()
+        pd.util.testing.assert_frame_equal(expect, got)
+
+    def test_max_larger(self):
+        nelem = int(2.5 * SPEED_BARRIER)
+        expected_grouper, got_grouper = self.make_groupers(nelem=nelem,
+                                                           numgroup=2)
+        expect = expected_grouper.max()
+        got = got_grouper.max()
+        pd.util.testing.assert_frame_equal(expect, got)
+
+    def test_min(self):
+        expected_grouper, got_grouper = self.make_groupers()
+        expect = expected_grouper.min()
+        got = got_grouper.min()
+        pd.util.testing.assert_frame_equal(expect, got)
+
+    def test_min_larger(self):
+        nelem = int(2.5 * SPEED_BARRIER)
+        expected_grouper, got_grouper = self.make_groupers(nelem=nelem,
+                                                           numgroup=2)
+        expect = expected_grouper.min()
+        got = got_grouper.min()
         pd.util.testing.assert_frame_equal(expect, got)
 
     def test_var(self):

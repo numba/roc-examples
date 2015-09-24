@@ -12,7 +12,9 @@ import pandas.core.common as com
 from numba_hsa_examples.radixsort.sort_driver import HsaRadixSortDriver
 from numba import hsa, jit
 
-from numba_hsa_examples.reduction.reduction import device_reduce_sum
+from numba_hsa_examples.reduction.reduction import (device_reduce_sum,
+                                                    device_reduce_max,
+                                                    device_reduce_min)
 
 import logging
 
@@ -302,25 +304,44 @@ def hsa_group_mean(result, counts, values, comp_ids):
     _hsa_group_agg(host_mean, device_mean, result, counts, values, comp_ids)
 
 
+def hsa_group_max(result, counts, values, comp_ids):
+    def device_max(inputs):
+        return device_reduce_max(inputs)
+
+    def host_max(inputs):
+        return inputs.max()
+
+    _hsa_group_agg(host_max, device_max, result, counts, values, comp_ids)
+
+
+def hsa_group_min(result, counts, values, comp_ids):
+    def device_min(inputs):
+        return device_reduce_min(inputs)
+
+    def host_min(inputs):
+        return inputs.min()
+
+    _hsa_group_agg(host_min, device_min, result, counts, values, comp_ids)
+
+
 def hsa_group_var(result, counts, values, comp_ids):
-    def device_mean(inputs):
+    def device_var(inputs):
         div = inputs.size - 1
         if div == 0:
             return NAN
         mean = device_reduce_sum(inputs) / inputs.size
-        diff = np.empty(values.size, dtype=result.dtype)
-
+        diff = np.empty(inputs.size, dtype=result.dtype)
         nelem = inputs.size
-        threads = 512
+        threads = 256
         groups = (nelem + threads - 1) // threads
         hsa_var_diff_kernel[groups, threads](diff, inputs, mean)
         psum = device_reduce_sum(diff)
         return psum / div
 
-    def host_mean(inputs):
+    def host_var(inputs):
         return comp_var(inputs, inputs.mean(), 1)
 
-    _hsa_group_agg(host_mean, device_mean, result, counts, values, comp_ids)
+    _hsa_group_agg(host_var, device_var, result, counts, values, comp_ids)
 
 
 NAN = float('nan')
@@ -371,6 +392,8 @@ def comp_var(inp, mean, ddof):
 
 _optimized_aggregate_functions = {
     'group_mean_float64': hsa_group_mean,
+    'group_max_float64': hsa_group_max,
+    'group_min_float64': hsa_group_min,
     'group_var_float64': hsa_group_var,
 
 }

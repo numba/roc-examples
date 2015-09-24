@@ -2,14 +2,12 @@ from __future__ import print_function, absolute_import
 
 from collections import OrderedDict
 from timeit import default_timer as timer
-import logging
+from pprint import pprint
 
 import pandas as pd
 import numpy as np
 
 from .groupby import HSAGrouper
-
-logging.basicConfig(level=logging.DEBUG)
 
 
 def benchmark(nelem, numgroup):
@@ -45,7 +43,7 @@ def benchmark(nelem, numgroup):
     got_mean = got_grouper.mean()
     out['hsa_mean'] = timer() - ts
 
-    assert np.allclose(expected_mean.values, got_mean.values)
+    np.testing.assert_allclose(expected_mean.values, got_mean.values)
 
     ts = timer()
     expected_var = expected_grouper.var()
@@ -55,8 +53,27 @@ def benchmark(nelem, numgroup):
     got_var = got_grouper.var()
     out['hsa_var'] = timer() - ts
 
-    assert np.allclose(expected_var.values, got_var.values)
+    np.testing.assert_allclose(expected_var.values, got_var.values)
 
+    ts = timer()
+    expected_max = expected_grouper.max()
+    out['cpu_max'] = timer() - ts
+
+    ts = timer()
+    got_max = got_grouper.max()
+    out['hsa_max'] = timer() - ts
+
+    np.testing.assert_equal(expected_max.values, got_max.values)
+
+    ts = timer()
+    expected_min = expected_grouper.min()
+    out['cpu_min'] = timer() - ts
+
+    ts = timer()
+    got_min = got_grouper.min()
+    out['hsa_min'] = timer() - ts
+
+    np.testing.assert_equal(expected_min.values, got_min.values)
     return out
 
 
@@ -71,11 +88,12 @@ def main():
     for i in range(1):
         print("### round", i + 1)
         # With 10^6 element, CPU and GPU speed is similar
-        print(benchmark(10 ** 6, numgroup))
+        pprint(benchmark(10 ** 6, numgroup))
         # With 10^7 element, GPU speed is 2-3 seconds faster
-        print(benchmark(10 ** 7, numgroup))
+        pprint(benchmark(10 ** 7, numgroup))
 
-        print(benchmark(2 * 10 ** 7, numgroup))
+        pprint(benchmark(2 * 10 ** 7, numgroup))
+        pprint(benchmark(3 * 10 ** 7, numgroup))
 
 
 if __name__ == '__main__':
