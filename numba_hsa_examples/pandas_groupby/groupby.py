@@ -243,11 +243,10 @@ def _get_grouper(obj, key=None, axis=0, level=None, sort=True):
 
 class CustomGrouper(BaseGrouper):
     def _aggregate(self, result, counts, values, agg_func, is_numeric):
-        print("_aggregate", agg_func)
+        _logger.info("_aggregate %s", agg_func)
         # NOTE: Intercept aggregate that has a HSA equivalent
         # The rest are the same as the base class. XXX call base class, perhaps?
         comp_ids, _, ngroups = self.group_info
-        print('values.ndim', values.ndim)
         if values.ndim > 3:
             # punting for now
             raise NotImplementedError("number of dimensions is currently "
@@ -262,8 +261,8 @@ class CustomGrouper(BaseGrouper):
                                                         agg_func)
                 fn(result, counts, values, comp_ids)
             except:
-                import traceback
-                traceback.print_exc()
+                _logger.exception("HSA cusotm grouper failed with exception")
+                raise
 
         return result
 
@@ -273,7 +272,7 @@ SPEED_BARRIER = 10 ** 5 * 5
 
 def _hsa_group_agg(cpu_agg, gpu_agg, result, counts, values, comp_ids):
     assert comp_ids.size == values.shape[0]
-    assert values.shape[1] == 1
+    assert values.shape[1] == result.shape[1]
 
     from timeit import default_timer as timer
 
@@ -281,14 +280,15 @@ def _hsa_group_agg(cpu_agg, gpu_agg, result, counts, values, comp_ids):
 
     start = 0
     for i, stop in enumerate(counts):
-        inputs = values[start:stop, 0]
-        if inputs.size < SPEED_BARRIER:
-            res = cpu_agg(inputs)
-        else:
-            tss = timer()
-            res = gpu_agg(inputs)
-            _logger.debug("%s runtime %s", gpu_agg.__name__, timer() - tss)
-        result[i, 0] = res
+        for j in range(values.shape[1]):
+            inputs = values[start:stop, j]
+            if inputs.size < SPEED_BARRIER:
+                res = cpu_agg(inputs)
+            else:
+                tss = timer()
+                res = gpu_agg(inputs)
+                _logger.debug("%s runtime %s", gpu_agg.__name__, timer() - tss)
+            result[i, j] = res
 
         # next
         start = stop

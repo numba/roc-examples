@@ -12,10 +12,14 @@ logging.basicConfig(level=logging.DEBUG)
 
 
 class TestCustomGrouper(unittest.TestCase):
-    def make_groupers(self, nelem=10, numgroup=4):
-        df = pd.DataFrame(
-            {'a': np.random.randint(0, numgroup, nelem).astype(np.int32),
-             'b': np.random.random(nelem).astype(np.float64)})
+    def make_groupers(self, nelem=10, numgroup=4, ncols=1):
+        column_names = 'bcdefg'
+        dct = {'a': np.random.randint(0, numgroup, nelem).astype(np.int32)}
+        cols = column_names[:ncols]
+        self.assertEqual(len(cols), ncols)
+        for col in cols:
+            dct[col] = np.random.random(nelem).astype(np.float64)
+        df = pd.DataFrame(dct)
         expected_grouper = df.groupby('a')
         got_grouper = df.groupby(HSAGrouper('a'))
         return expected_grouper, got_grouper
@@ -112,6 +116,27 @@ class TestCustomGrouper(unittest.TestCase):
         got = got_grouper.var()
         for x, y in zip(expect.values, got.values):
             np.testing.assert_allclose(x, y)
+
+    def test_var_two_value_columns(self):
+        nelem = int(2.5 * SPEED_BARRIER)
+        expected_grouper, got_grouper = self.make_groupers(nelem=nelem,
+                                                           numgroup=2,
+                                                           ncols=2)
+        expect = expected_grouper.var()
+        got = got_grouper.var()
+        for x, y in zip(expect.values, got.values):
+            np.testing.assert_allclose(x, y)
+
+    def test_var_multi_value_columns(self):
+        for ncol in range(3, 5):
+            nelem = int(2.5 * SPEED_BARRIER)
+            expected_grouper, got_grouper = self.make_groupers(nelem=nelem,
+                                                               numgroup=2,
+                                                               ncols=ncol)
+            expect = expected_grouper.var()
+            got = got_grouper.var()
+            for x, y in zip(expect.values, got.values):
+                np.testing.assert_allclose(x, y)
 
 
 if __name__ == '__main__':
