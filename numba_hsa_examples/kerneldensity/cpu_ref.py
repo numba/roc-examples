@@ -13,8 +13,6 @@ from numba import njit
 
 from .plotting import RGBColorMapper
 
-np.random.seed(12345)
-
 
 @njit
 def gaussian(x, mu, sigma):
@@ -194,6 +192,7 @@ def plot_multi_test():
 
 
 def test_uni_kde():
+
     samples = mixture_rvs([.25, .75], size=10000,
                           dist=[stats.norm, stats.norm],
                           kwargs=(
@@ -221,6 +220,8 @@ def test_uni_kde():
 
 
 def test_multi_kde():
+    np.random.seed(12345)
+
     nelem = 100
 
     samples = np.squeeze(np.dstack([np.random.normal(size=nelem),
