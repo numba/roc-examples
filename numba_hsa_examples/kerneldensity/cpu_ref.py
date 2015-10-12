@@ -11,6 +11,8 @@ from bokeh import palettes
 
 from numba import njit
 
+from .plotting import RGBColorMapper
+
 np.random.seed(12345)
 
 
@@ -79,24 +81,19 @@ def multi_kde_seq_factory(kernel):
 multi_kde_seq = multi_kde_seq_factory(gaussian_kernel)
 
 
-def test_gaussian():
-    output_file("kde.html")
-    samples = np.linspace(-2, 2, 1000)
-    p1 = figure()
-
-    x = samples
-    pdf = np.array([gaussian_kernel(i) for i in samples])
-
-    p1.line(x, pdf)
-
-    show(p1)
-
-
 def build_support(samples, bandwidth, cut=3):
     minimum = np.min(samples) - cut * bandwidth
     maximum = np.max(samples) + cut * bandwidth
     nobs = samples.size
     support = np.linspace(minimum, maximum, nobs)
+    return support
+
+
+def build_support_nd(samples, bandwidths, **kwargs):
+    support_dims = [build_support(samples[:, i], bandwidths[i], **kwargs)
+                    for i in range(bandwidths.size)]
+
+    support = np.array([ndata for ndata in itertools.product(*support_dims)])
     return support
 
 
@@ -115,13 +112,12 @@ def calc_rms(expect, got, norm=False):
         return rms
 
 
-def test_uni():
+def plot_uni_test():
     samples = mixture_rvs([.25, .75], size=10000,
                           dist=[stats.norm, stats.norm],
                           kwargs=(
                               dict(loc=-1, scale=.5), dict(loc=1, scale=.5)))
 
-    # samples = np.random.normal(size=10000)
     bandwidth = approx_bandwidth(samples)
 
     print('bandwidth', bandwidth)
@@ -156,20 +152,17 @@ def test_uni():
     show(vplot(p1, p2, p3))
 
 
-def test_multi_kde():
+def plot_multi_test():
     nelem = 100
 
-    samples = np.ascontiguousarray(np.vstack([np.random.normal(size=nelem),
-                                              np.random.normal(size=nelem)]).T)
+    samples = np.squeeze(np.dstack([np.random.normal(size=nelem),
+                                    np.random.normal(size=nelem)]))
 
     bwlist = [approx_bandwidth(samples[:, k])
               for k in range(samples.shape[1])]
     bandwidths = np.array(bwlist)
 
-    support_dims = [build_support(samples[:, i], bandwidths[i])
-                    for i in range(bandwidths.size)]
-
-    support = np.array([(x, y) for x, y in itertools.product(*support_dims)])
+    support = build_support_nd(samples, bandwidths)
 
     pdf = np.zeros(support.shape[0], dtype=np.float64)
 
@@ -187,7 +180,7 @@ def test_multi_kde():
 
     output_file("kde_multi.html")
 
-    cm = RGBAColorMapper(0, 1, palettes.Spectral11)
+    cm = RGBColorMapper(0, 1, palettes.Spectral11)
 
     p1 = figure(title="KDE")
     p1.square(support[:, 0], support[:, 1], size=5,
@@ -206,7 +199,6 @@ def test_uni_kde():
                           kwargs=(
                               dict(loc=-1, scale=.5), dict(loc=1, scale=.5)))
 
-    # samples = np.random.normal(size=10000)
     bandwidth = approx_bandwidth(samples)
 
     # Run statsmodel for reference
@@ -225,73 +217,22 @@ def test_uni_kde():
     got = pdf
 
     rms = calc_rms(expect, got, norm=True)
-    assert rms < 1e-4, "RMS error too high"
-
-
-# Color map
-def hex_to_rgb(value):
-    """Given a color in hex format, return it in RGB."""
-
-    values = value.lstrip('#')
-    lv = len(values)
-    rgb = list(int(values[i:i + lv // 3], 16) for i in range(0, lv, lv // 3))
-    return rgb
-
-
-class RGBAColorMapper(object):
-    """Maps floating point values to rgb values over a palette"""
-
-    def __init__(self, low, high, palette):
-        self.range = np.linspace(low, high, len(palette))
-        # self.r, self.g, self.b = np.array(zip(*[hex_to_rgb(i) for i in palette])) #python 2.7
-        self.r, self.g, self.b = np.array(
-            list(zip(*[hex_to_rgb(i) for i in palette])))
-
-    def color(self, data):
-        """Maps your data values to the pallette with linear interpolation"""
-
-        red = np.interp(data, self.range, self.r)
-        blue = np.interp(data, self.range, self.b)
-        green = np.interp(data, self.range, self.g)
-        # Style plot to return a grey color when value is 'nan'
-        red[np.isnan(red)] = 240
-        blue[np.isnan(blue)] = 240
-        green[np.isnan(green)] = 240
-        colors = np.dstack([red.astype(np.uint8),
-                            green.astype(np.uint8),
-                            blue.astype(np.uint8),
-                            np.full_like(data, 255, dtype=np.uint8)])
-        colors = colors.view(dtype=np.uint32).reshape(data.shape)
-
-        def make_hex(x):
-            h = hex(x)[4:]
-            diff = 6 - len(h)
-            prefix = '0' * diff
-            return prefix + h
-
-        return ["#{0}".format(make_hex(x)) for x in colors]
+    assert rms < 1e-2, "RMS error too high: {0}".format(rms)
 
 
 def test_multi_kde():
     nelem = 100
 
-    samples = np.ascontiguousarray(np.vstack([np.random.normal(size=nelem),
-                                              np.random.normal(size=nelem)]).T)
+    samples = np.squeeze(np.dstack([np.random.normal(size=nelem),
+                                    np.random.normal(size=nelem)]))
 
     bwlist = [approx_bandwidth(samples[:, k])
               for k in range(samples.shape[1])]
     bandwidths = np.array(bwlist)
 
-    support_dims = [build_support(samples[:, i], bandwidths[i])
-                    for i in range(bandwidths.size)]
-
-    support = np.array([(x, y) for x, y in itertools.product(*support_dims)])
+    support = build_support_nd(samples, bandwidths)
 
     pdf = np.zeros(support.shape[0], dtype=np.float64)
-
-    print('bandwidths', bandwidths)
-    print('support', support.shape)
-    print('samples', samples.shape)
 
     multi_kde_seq(support, samples, bandwidths, pdf)
 
@@ -300,12 +241,9 @@ def test_multi_kde():
     expect_pdf = kde.pdf(support)
 
     rms = calc_rms(expect_pdf, pdf, norm=True)
-    assert rms < 1e-4, "RMS error too high"
+    assert rms < 1e-4, "RMS error too high: {0}".format(rms)
 
 
 if __name__ == '__main__':
-    test_multi_kde()
-    # test_uni_kde()
-    # test_uni()
-    # test_gaussian()
-    # test_multi()
+    plot_uni_test()
+    plot_multi_test()
