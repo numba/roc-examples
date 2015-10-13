@@ -192,7 +192,6 @@ def plot_multi_test():
 
 
 def test_uni_kde():
-
     samples = mixture_rvs([.25, .75], size=10000,
                           dist=[stats.norm, stats.norm],
                           kwargs=(
