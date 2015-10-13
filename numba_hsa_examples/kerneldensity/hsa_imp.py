@@ -15,7 +15,8 @@ from .plotting import RGBColorMapper
 
 from .cpu_ref import approx_bandwidth, calc_rms
 
-from numba import hsa
+from numba import hsa, njit
+from numba_hsa_examples.reduction.reduction import group_reduce_sum_float64
 
 
 @hsa.jit(device=True)
@@ -29,7 +30,7 @@ def hsa_gaussian(x, mu, sigma):
 
 @hsa.jit(device=True)
 def hsa_gaussian_kernel(x):
-    return hsa_gaussian(x, mu=0, sigma=1)
+    return hsa_gaussian(x, 0, 1)
 
 
 def approx_bandwidth(xs):
@@ -41,7 +42,7 @@ def approx_bandwidth(xs):
     return n ** (-1 / (d + 4))
 
 
-def hsa_uni_kde_seq_factory(kernel):
+def hsa_uni_kde_factory(kernel):
     @hsa.jit
     def hsa_uni_kde(support, samples, bandwidth, pdf):
         i = hsa.get_global_id(0)
@@ -52,13 +53,59 @@ def hsa_uni_kde_seq_factory(kernel):
             total += kernel((samples[j] - supp) / bandwidth) / bandwidth
         pdf[i] = total / samples.size
 
-    return hsa_uni_kde
+    def launcher(support, samples, bandwidth, pdf):
+        assert pdf.ndim == 1
+        assert support.ndim == 1
+        assert samples.ndim == 1
+        assert support.size == pdf.size
+        with hsa.register(support, samples, pdf):
+            threads = 64 * 4  # 4x wavesize
+            blocks = (pdf.size + threads - 1) // threads
+            hsa_uni_kde[blocks, threads](support, samples, bandwidth, pdf)
+
+    return launcher
 
 
-hsa_uni_kde_seq = hsa_uni_kde_seq_factory(hsa_gaussian_kernel)
+hsa_uni_kde = hsa_uni_kde_factory(hsa_gaussian_kernel)
 
 
-def test_uni_kde():
+def hsa_uni_kde_ver2_factory(kernel):
+    @hsa.jit
+    def hsa_uni_kde(support, samples, bandwidth, pdf):
+        gid = hsa.get_group_id(0)
+        tid = hsa.get_local_id(0)
+        tsz = hsa.get_local_size(0)
+
+        supp = support[gid]
+
+        # all local threads cooperately computes the energy for a support
+        energy = 0
+        for base in range(0, samples.size, tsz):
+            idx = tid + base
+            if idx < samples.size:
+                energy += kernel((samples[idx] - supp) / bandwidth) / bandwidth
+
+        # reduce energy
+        total = group_reduce_sum_float64(energy)
+        pdf[gid] = total / samples.size
+
+    def launcher(support, samples, bandwidth, pdf):
+        assert pdf.ndim == 1
+        assert support.ndim == 1
+        assert samples.ndim == 1
+        assert support.size == pdf.size
+        with hsa.register(support, samples, pdf):
+            threads = 64 * 4  # 4x wavesize
+            blocks = support.size
+            hsa_uni_kde[blocks, threads](support, samples, bandwidth, pdf)
+
+    return launcher
+
+
+hsa_uni_kde_ver2 = hsa_uni_kde_ver2_factory(hsa_gaussian_kernel)
+
+
+def test_hsa_uni_kde():
     np.random.seed(12345)
 
     samples = mixture_rvs([.25, .75], size=10000,
@@ -77,15 +124,47 @@ def test_uni_kde():
 
     # Run custom KDE
     pdf = np.zeros_like(support)
-    hsa_uni_kde_seq(support, samples, bandwidth, pdf)
+    hsa_uni_kde(support, samples, bandwidth, pdf)
 
     # Check value
     expect = kde.density
     got = pdf
 
     rms = calc_rms(expect, got, norm=True)
+    print("RMS", rms)
+    assert rms < 1e-2, "RMS error too high: {0}".format(rms)
+
+
+def test_hsa_uni_kde_ver2():
+    np.random.seed(12345)
+
+    samples = mixture_rvs([.25, .75], size=10000,
+                          dist=[stats.norm, stats.norm],
+                          kwargs=(
+                              dict(loc=-1, scale=.5), dict(loc=1, scale=.5)))
+
+    bandwidth = approx_bandwidth(samples)
+
+    # Run statsmodel for reference
+    kde = sm.nonparametric.KDEUnivariate(samples)
+    kde.fit(kernel="gau")
+
+    # Reuse statsmodel support for our test
+    support = kde.support
+
+    # Run custom KDE
+    pdf = np.zeros_like(support)
+    hsa_uni_kde_ver2(support, samples, bandwidth, pdf)
+
+    # Check value
+    expect = kde.density
+    got = pdf
+
+    rms = calc_rms(expect, got, norm=True)
+    print("RMS", rms)
     assert rms < 1e-2, "RMS error too high: {0}".format(rms)
 
 
 if __name__ == "__main__":
-    test_uni_kde()
+    test_hsa_uni_kde()
+    test_hsa_uni_kde_ver2()
