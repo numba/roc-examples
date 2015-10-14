@@ -8,7 +8,8 @@ import statsmodels.api as sm
 from statsmodels.distributions.mixture_rvs import mixture_rvs
 from timeit import default_timer as timer
 
-from .cpu_ref import approx_bandwidth, calc_rms, uni_kde_seq, build_support_nd
+from .cpu_ref import (approx_bandwidth, calc_rms, uni_kde_seq, build_support_nd,
+                      multi_kde_seq)
 
 from numba import hsa
 from numba_hsa_examples.reduction.reduction import group_reduce_sum_float64
@@ -166,7 +167,8 @@ def test_hsa_uni_kde_ver2():
 
 def benchmark_hsa_uni_kde():
     def driver(imp_dict, retry=3, size=10000):
-        print("Running benchmark on size = {size}".format(size=size))
+        print("Running univariate kde benchmark on size = {size}".format(
+            size=size))
         samples = mixture_rvs([.25, .75], size=size,
                               dist=[stats.norm, stats.norm],
                               kwargs=(
@@ -265,9 +267,8 @@ def hsa_multi_kde_factory(kernel):
                 prod = 1
                 for k in range(nvar):
                     bw = bandwidths[k]
-                    if j < samples.shape[0]:
-                        diff = samples[j, k] - support[i, k]
-                        prod *= kernel(diff / bw) / bw
+                    diff = samples[j, k] - support[i, k]
+                    prod *= kernel(diff / bw) / bw
                 sum += prod
             pdf[i] = sum / samples.shape[0]
 
@@ -289,83 +290,72 @@ hsa_multi_kde = hsa_multi_kde_factory(hsa_gaussian_kernel)
 
 
 def hsa_multi_kde_ver2_factory(kernel):
-    BLOCKSIZE = WAVESIZE * 4
-
-    BUFSIZE = BLOCKSIZE
-
     from numba import float64
+
+    BLOCKSIZE = WAVESIZE * 4
+    MAX_NDIM = 4
+    SAMPLES_SIZE = MAX_NDIM, BLOCKSIZE
 
     @hsa.jit
     def hsa_multi_kde(support, samples, bandwidths, pdf):
         """
-        Expects 2d array for support: (num_observations, num_variables)
-        samples is a 1d array that is compatible to a flattened array of shape
-        (num_observations, num_variables).
-
-        Maximum dimension is BUFSIZE.
+        Expects 2d arrays for samples and support: (num_observations,
+        num_variables)
         """
         nvar = support.shape[1]
-
-        gid = hsa.get_group_id(0)
+        i = hsa.get_global_id(0)
         tid = hsa.get_local_id(0)
-        tsz = hsa.get_local_size(0)
+        valid = i < support.shape[0]
 
-        sm_energy = hsa.shared.array(BUFSIZE, dtype=float64)
-        sm_partial_sum = hsa.shared.array(BUFSIZE, dtype=float64)
-        sm_partial_sum[tid] = 0
+        sum = 0
 
-        base = 0
-        num_samples = samples.size // nvar
-        while base < num_samples:
-            # All samples are loaded as a flat array for coaleasced access.
-            # The energy at that point is calculated and cached.
-            load_id = base + tid
-            dim = load_id % nvar
-            if load_id < samples.size:
-                bw = bandwidths[dim]
-                diff = samples[load_id] - support[gid, dim]
-                sm_energy[tid] = kernel(diff / bw) / bw
+        sm_samples = hsa.shared.array(SAMPLES_SIZE, dtype=float64)
+        sm_bandwidths = hsa.shared.array(MAX_NDIM, dtype=float64)
+        sm_support = hsa.shared.array(SAMPLES_SIZE, dtype=float64)
+
+        if valid:
+            for k in range(nvar):
+                sm_support[k, tid] = support[i, k]
+
+        if tid < nvar:
+            sm_bandwidths[tid] = bandwidths[tid]
+
+        for base in range(0, samples.shape[0], BLOCKSIZE):
+            loadcount = min(samples.shape[0] - base, BLOCKSIZE)
 
             hsa.barrier()
 
-            # Compute the product kernel on each sample point.
-            # Some threads have nothing to do.
-            # Each active thread is dealing with a sample point and all
-            # of its dimension.
-            # The partial sum on te sample is stored
-            load_count = min(tsz, samples.size - base)
+            # Preload samples tile
+            if tid < loadcount:
+                for k in range(nvar):
+                    sm_samples[k, tid] = samples[base + tid, k]
 
-            work_loc = tid * nvar
-            if work_loc < load_count:
-                prod = 1
-                for i in range(nvar):
-                    prod *= sm_energy[work_loc + i]
-                sm_partial_sum[tid] += prod
-
-            base += load_count
             hsa.barrier()
 
-        # Compute the total energy for the support as a sum of partial sum.
-        # Note: the result is available in the first thread (tid==0) only.
-        total = group_reduce_sum_float64(sm_partial_sum[tid])
+            # Compute on the tile
+            if valid:
+                for j in range(loadcount):
+                    prod = 1
+                    for k in range(nvar):
+                        bw = sm_bandwidths[k]
+                        diff = sm_samples[k, j] - sm_support[k, tid]
+                        prod *= kernel(diff / bw) / bw
+                    sum += prod
 
-        # The first thread stores the result
-        if tid == 0:
-            pdf[gid] = total / num_samples
+        if valid:
+            pdf[i] = sum / samples.shape[0]
 
     def launcher(support, samples, bandwidths, pdf):
         assert support.shape[0] == pdf.size
         assert support.shape[1] == samples.shape[1]
         assert bandwidths.size == support.shape[1]
-        assert bandwidths.size < BLOCKSIZE, "maximum dimension exceeded"
+        assert bandwidths.size <= MAX_NDIM
 
         threads = BLOCKSIZE
-        blocks = support.shape[0]
+        blocks = (support.shape[0] + threads - 1) // threads
 
-        samples1d = np.ascontiguousarray(samples).ravel()
-
-        with hsa.register(support, samples1d, bandwidths, pdf):
-            hsa_multi_kde[blocks, threads](support, samples1d, bandwidths, pdf)
+        with hsa.register(support, samples, bandwidths, pdf):
+            hsa_multi_kde[blocks, threads](support, samples, bandwidths, pdf)
 
     return launcher
 
@@ -427,9 +417,93 @@ def test_hsa_multi_kde_ver2():
     assert rms < 1e-4, "RMS error too high: {0}".format(rms)
 
 
+def benchmark_hsa_multi_kde():
+    def driver(imp_dict, retry=3, size=100):
+        print("Running multivariate kde benchmark on size = {size}".format(
+            size=size))
+
+        samples = np.squeeze(np.dstack([np.random.normal(size=size),
+                                        np.random.normal(size=size)]))
+
+        bwlist = [approx_bandwidth(samples[:, k])
+                  for k in range(samples.shape[1])]
+        bandwidths = np.array(bwlist)
+
+        support = build_support_nd(samples, bandwidths)
+
+        # Run statsmodel for reference
+        kde = sm.nonparametric.KDEMultivariate(samples, var_type='cc',
+                                               bw=bwlist)
+        expect = kde.pdf(support)
+
+        timing = OrderedDict()
+
+        # Run timing loop
+        for name, imp in imp_dict.items():
+            print("Running {name}".format(name=name))
+            times = []
+            for t in range(retry):
+                print(" trial = {t}".format(t=t), end=' ... ')
+                got, elapsed = imp(support, samples, bandwidths, timer)
+                print("elapsed =", elapsed, end=' | ')
+                times.append(elapsed)
+                rms = calc_rms(expect, got, norm=True)
+                print("RMS =", rms)
+                if rms > 0.01:
+                    print("*** warning, RMS is too high")
+            timing[name] = times
+
+        return timing
+
+    imp_dict = OrderedDict()
+
+    def statsmodel_imp(support, samples, bandwidths, timer):
+        kde = sm.nonparametric.KDEMultivariate(samples, var_type='cc',
+                                               bw=bandwidths)
+        ts = timer()
+        pdf = kde.pdf(support)
+        te = timer()
+        return pdf, te - ts
+
+    imp_dict['statsmodel'] = statsmodel_imp
+
+    def numba_cpu_imp(support, samples, bandwidths, timer):
+        pdf = np.zeros(support.shape[0], dtype=np.float64)
+        ts = timer()
+        multi_kde_seq(support, samples, bandwidths, pdf)
+        te = timer()
+        return pdf, te - ts
+
+    imp_dict['numba-cpu'] = numba_cpu_imp
+
+    def numba_hsa_ver1_imp(support, samples, bandwidths, timer):
+        pdf = np.zeros(support.shape[0], dtype=np.float64)
+        ts = timer()
+        hsa_multi_kde(support, samples, bandwidths, pdf)
+        te = timer()
+        return pdf, te - ts
+
+    imp_dict['numba-hsa-ver1'] = numba_hsa_ver1_imp
+
+    def numba_hsa_ver2_imp(support, samples, bandwidths, timer):
+        pdf = np.zeros(support.shape[0], dtype=np.float64)
+        ts = timer()
+        hsa_multi_kde_ver2(support, samples, bandwidths, pdf)
+        te = timer()
+        return pdf, te - ts
+
+    imp_dict['numba-hsa-ver2'] = numba_hsa_ver2_imp
+
+    # Run benchmark
+    for size in [100, 200]:  # , 300]:
+        timings = driver(imp_dict, size=size)
+        pprint(timings)
+
+
 if __name__ == "__main__":
-    test_hsa_uni_kde()
-    test_hsa_uni_kde_ver2()
-    test_hsa_multi_kde()
+    # test_hsa_uni_kde()
+    # test_hsa_uni_kde_ver2()
+    # test_hsa_multi_kde()
     test_hsa_multi_kde_ver2()
     # benchmark_hsa_uni_kde()
+    benchmark_hsa_multi_kde()
