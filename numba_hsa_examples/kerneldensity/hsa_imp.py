@@ -504,6 +504,6 @@ if __name__ == "__main__":
     # test_hsa_uni_kde()
     # test_hsa_uni_kde_ver2()
     # test_hsa_multi_kde()
-    test_hsa_multi_kde_ver2()
-    # benchmark_hsa_uni_kde()
+    # test_hsa_multi_kde_ver2()
+    benchmark_hsa_uni_kde()
     benchmark_hsa_multi_kde()
