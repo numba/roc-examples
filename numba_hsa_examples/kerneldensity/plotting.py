@@ -40,3 +40,19 @@ class RGBColorMapper(object):
         return rgb_to_hex(red.astype(np.uint8),
                           green.astype(np.uint8),
                           blue.astype(np.uint8))
+
+    def color_rgba(self, data):
+        red = np.interp(data, self.range, self.r)
+        blue = np.interp(data, self.range, self.b)
+        green = np.interp(data, self.range, self.g)
+        # Style plot to return a grey color when value is 'nan'
+        red[np.isnan(red)] = 240
+        blue[np.isnan(blue)] = 240
+        green[np.isnan(green)] = 240
+        alpha = np.zeros_like(red)
+        alpha[:] = 0xff
+        return np.dstack([red.astype(np.uint8),
+                          green.astype(np.uint8),
+                          blue.astype(np.uint8),
+                          alpha.astype(np.uint8)])
+
