@@ -6,6 +6,9 @@ from bokeh import palettes
 import numpy as np
 import itertools
 import random
+import kde
+import dataloader
+import plotting
 
 
 def get_us_state_outline():
@@ -71,11 +74,17 @@ def minmax(arr):
 
 class DensityOverlay(object):
     def __init__(self, left, right, bottom, top):
+        print("Loading data")
+        df = dataloader.load_all_data()
+        self.lon = df.lon.values
+        self.lat = df.lat.values
+
         self.source = ColumnDataSource(data=self._make_dict(left, right,
                                                             bottom, top))
 
+
     def _make_dict(self, left, right, bottom, top):
-        ny = nx = 50
+        ny = nx = 25
         x = np.linspace(left, right, nx)
         y = np.linspace(bottom, top, ny)
 
@@ -84,14 +93,19 @@ class DensityOverlay(object):
         dw = (right - left) / (nx - 1)
         dh = (top - bottom) / (ny - 1)
 
-        colors = palettes.Spectral11
+        print("Compute density")
+        pdf = kde.compute_density(self.lon, self.lat, xx, yy)
+        print("Done")
+        cm = plotting.RGBColorMapper(0.0, 1.0, palettes.Reds9)
+        cols = cm.color(1 - pdf / np.ptp(pdf))
 
+        # cols = [random.choice(palettes.Spectral9) for _ in range(len(xx))]
         return {
             'lon': xx,
             'lat': yy,
             'width': [dw] * len(xx),
             'height': [dh] * len(yy),
-            'colors': [random.choice(colors) for _ in range(len(yy))],
+            'colors': cols,
         }
 
     def update(self, left, right, bottom, top):
@@ -101,8 +115,9 @@ class DensityOverlay(object):
 
     def draw(self, plot):
         plot.rect(x="lon", y="lat", width="width", height="height",
-                  fill_color="colors", fill_alpha=0.25, line_alpha=0.1,
+                  fill_color="colors", fill_alpha=0.50, line_alpha=0.1,
                   source=self.source)
+        # plot.cross(x=self.lon, y=self.lat, size=2, color='black')
 
 def main():
     state_xs, state_ys = get_us_state_outline()
@@ -128,5 +143,6 @@ def main():
 
     doc = curdoc()
     doc.add(plot)
+
 
 main()
