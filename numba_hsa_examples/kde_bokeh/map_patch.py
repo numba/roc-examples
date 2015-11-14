@@ -82,7 +82,6 @@ class DensityOverlay(object):
         self.source = ColumnDataSource(data=self._make_dict(left, right,
                                                             bottom, top))
 
-
     def _make_dict(self, left, right, bottom, top):
         ny = nx = 25
         x = np.linspace(left, right, nx)
@@ -118,6 +117,7 @@ class DensityOverlay(object):
                   fill_color="colors", fill_alpha=0.50, line_alpha=0.1,
                   source=self.source)
         # plot.cross(x=self.lon, y=self.lat, size=2, color='black')
+
 
 def main():
     state_xs, state_ys = get_us_state_outline()
