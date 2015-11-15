@@ -1,13 +1,15 @@
+"""
+Launch with
+PYTHONPATH=`pwd` bokeh serve numba_hsa_examples/kde_bokeh/map_patch.py
+"""
 from bokeh.sampledata import us_states
 from bokeh.plotting import figure
 from bokeh.io import curdoc
 from bokeh.models import Range1d, ColumnDataSource
+from bokeh.models.widgets import HBox, VBox, Select
 from bokeh import palettes
 import numpy as np
 import itertools
-import random
-
-
 from numba_hsa_examples.kde_bokeh import kde
 from numba_hsa_examples.kde_bokeh import dataloader
 from numba_hsa_examples.kde_bokeh import plotting
@@ -76,16 +78,22 @@ def minmax(arr):
 
 class DensityOverlay(object):
     def __init__(self, left, right, bottom, top):
+        self.use_hsa = bool(kde.USE_HSA)
         print("Loading data")
-        df = dataloader.load_all_data()
-        self.lon = df.lon.values
-        self.lat = df.lat.values
+        if True:
+            df = dataloader.load_all_data(left, right, bottom, top)
+            self.lon = df.lon.values
+            self.lat = df.lat.values
+        else:
+            self.lon = np.random.random(100) * (right - left) + left
+            self.lat = np.random.random(100) * (top - bottom) + bottom
 
         self.source = ColumnDataSource(data=self._make_dict(left, right,
                                                             bottom, top))
 
+
     def _make_dict(self, left, right, bottom, top):
-        ny = nx = 25
+        ny = nx = 50
         x = np.linspace(left, right, nx)
         y = np.linspace(bottom, top, ny)
 
@@ -95,7 +103,8 @@ class DensityOverlay(object):
         dh = (top - bottom) / (ny - 1)
 
         print("Compute density")
-        pdf = kde.compute_density(self.lon, self.lat, xx, yy)
+        pdf = kde.compute_density(self.lon, self.lat, xx, yy,
+                                  use_hsa=self.use_hsa)
         print("Done")
         cm = plotting.RGBColorMapper(0.0, 1.0, palettes.Reds9)
         cols = cm.color(1 - pdf / np.ptp(pdf))
@@ -120,6 +129,10 @@ class DensityOverlay(object):
                   source=self.source)
         # plot.cross(x=self.lon, y=self.lat, size=2, color='black')
 
+    def backend_change_listener(self, attr, old, new):
+        self.use_hsa = new == 'HSA'
+        print("select", new)
+
 
 def main():
     state_xs, state_ys = get_us_state_outline()
@@ -143,8 +156,17 @@ def main():
     plot.y_range.on_change("start", listener)
     plot.y_range.on_change("end", listener)
 
+    backends = ["CPU", "HSA"]
+    default_value = backends[kde.USE_HSA]
+    backend_select = Select(name="backend", value=default_value,
+                            options=backends)
+    backend_select.on_change('value', density_overlay.backend_change_listener)
+
     doc = curdoc()
+    # XXX: Cannot use VBox/HBox?
+    #      Layout is now random due to hashing
     doc.add(plot)
+    doc.add(backend_select)
 
 
 main()

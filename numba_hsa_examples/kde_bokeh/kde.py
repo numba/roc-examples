@@ -12,7 +12,7 @@ def filter_array(lon, lat, min_lon, min_lat, max_lon, max_lat):
     return min_lon <= lon <= max_lon and min_lat <= lat <= max_lat
 
 
-def compute_density(lon, lat, xx, yy):
+def compute_density(lon, lat, xx, yy, use_hsa):
     min_lon = np.min(xx)
     max_lon = np.max(xx)
 
@@ -37,7 +37,7 @@ def compute_density(lon, lat, xx, yy):
     print(samples.size, samples.dtype)
 
     start_time = timer()
-    if USE_HSA:
+    if use_hsa:
         print("HSA".center(80, '-'))
         hsa_imp.hsa_multi_kde(support, samples, bwlist, pdf)
     else:

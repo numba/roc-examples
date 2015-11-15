@@ -21,14 +21,15 @@ def filter_dataframes(df, lat_min, lat_max, lon_min, lon_max):
     return df[lat_in_range & lon_in_range]
 
 
-def load_all_data():
+def load_all_data(lon_min, lon_max, lat_min, lat_max):
     # files = ["data/event_00.hdf5",
     #          "data/event_15.hdf5"]
 
     files = [os.path.join(basedir, "data/event_00.hdf5")]
 
     dfs = (load_file_as_dataframe(f) for f in files)
-    criteria = dict(lat_min=25, lat_max=50, lon_min=-130, lon_max=-65)
+    criteria = dict(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min,
+                    lon_max=lon_max)
     filtered = (filter_dataframes(df, **criteria) for df in dfs)
     return reduce(lambda a, b: a.append(b), filtered)
 
