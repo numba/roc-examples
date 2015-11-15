@@ -6,9 +6,11 @@ from bokeh import palettes
 import numpy as np
 import itertools
 import random
-import kde
-import dataloader
-import plotting
+
+
+from numba_hsa_examples.kde_bokeh import kde
+from numba_hsa_examples.kde_bokeh import dataloader
+from numba_hsa_examples.kde_bokeh import plotting
 
 
 def get_us_state_outline():
