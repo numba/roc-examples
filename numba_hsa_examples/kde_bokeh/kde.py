@@ -24,7 +24,9 @@ def compute_density(lon, lat, xx, yy, use_hsa):
     lon = lon[selected]
     lat = lat[selected]
 
-    samples = np.squeeze(np.dstack([lon, lat]))
+    samples = np.dstack([lon, lat])
+    assert samples.shape[0] == 1
+    samples = samples.reshape(samples.shape[1:])
     support = np.squeeze(np.dstack([xx, yy]))
 
     # bwlist = [cpu_ref.approx_bandwidth(samples[:, k])
@@ -34,7 +36,7 @@ def compute_density(lon, lat, xx, yy, use_hsa):
 
     pdf = np.zeros(support.shape[0], dtype=np.float64)
 
-    print(samples.size, samples.dtype)
+    print(samples.shape, samples.dtype)
 
     start_time = timer()
     if use_hsa:

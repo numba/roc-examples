@@ -125,7 +125,7 @@ class DensityOverlay(object):
 
     def draw(self, plot):
         plot.rect(x="lon", y="lat", width="width", height="height",
-                  fill_color="colors", fill_alpha=0.50, line_alpha=0.1,
+                  fill_color="colors", fill_alpha=0.50, line_alpha=0,
                   source=self.source)
         # plot.cross(x=self.lon, y=self.lat, size=2, color='black')
 
