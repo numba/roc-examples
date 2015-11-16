@@ -29,8 +29,6 @@ def compute_density(lon, lat, xx, yy, use_hsa):
     samples = samples.reshape(samples.shape[1:])
     support = np.squeeze(np.dstack([xx, yy]))
 
-    # bwlist = [cpu_ref.approx_bandwidth(samples[:, k])
-    #           for k in range(samples.shape[1])]
     bwlist = np.array([cpu_ref.approx_bandwidth(support[:, k])
                        for k in range(support.shape[1])])
 
