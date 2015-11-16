@@ -35,7 +35,7 @@ def filter_dataframes(df, lat_min, lat_max, lon_min, lon_max,
 def load_all_data(lon_min, lon_max, lat_min, lat_max):
     # files = ["data/event_00.hdf5",
     #          "data/event_15.hdf5"]
-    filenames = ["data/event_{0:02d}.hdf5".format(i) for i in range(15)]
+    filenames = ["data/event_{0:02d}.hdf5".format(i) for i in range(10)]
 
     files = [os.path.join(basedir, f) for f in filenames]
 
