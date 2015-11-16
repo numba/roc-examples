@@ -45,4 +45,4 @@ def compute_density(lon, lat, xx, yy, use_hsa):
         cpu_ref.multi_kde_seq(support, samples, bwlist, pdf)
     end_time = timer()
     print("duration", "{0:0.2f} seconds".format(end_time - start_time))
-    return pdf
+    return pdf, samples.size
