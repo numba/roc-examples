@@ -6,7 +6,7 @@ from bokeh.sampledata import us_states
 from bokeh.plotting import Figure
 from bokeh.io import curdoc
 from bokeh.models import Range1d, ColumnDataSource
-from bokeh.models.widgets import HBox, VBox, Select
+from bokeh.models.widgets import HBox, VBox, Select, Slider
 from bokeh import palettes
 import numpy as np
 import itertools
@@ -14,7 +14,7 @@ from numba_hsa_examples.kde_bokeh import kde
 from numba_hsa_examples.kde_bokeh import dataloader
 from numba_hsa_examples.kde_bokeh import plotting
 
-TITLE = "US Map Lightning"
+TITLE = "US Lightning Density"
 
 
 def get_us_state_outline():
@@ -56,19 +56,30 @@ def minmax(arr):
 
 
 class DensityOverlay(object):
+    INITIAL_GRID = 20
+
     def __init__(self, plot, left, right, bottom, top):
         self.count = 0
+        self.gridcount = self.INITIAL_GRID
+        self.radiance = 50000
+        assert self.radiance > dataloader.MIN_RAD
         self.plot = plot
         self.queue = []
         self.use_hsa = bool(kde.USE_HSA)
+        self.last_view_port = left, right, bottom, top
+
         print("Loading data")
-        if False:
+        if True:
             df = dataloader.load_all_data(left, right, bottom, top)
             self.lon = df.lon.values
             self.lat = df.lat.values
+            self.rad = df.rad.values
         else:
             self.lon = np.random.random(100) * (right - left) + left
             self.lat = np.random.random(100) * (top - bottom) + bottom
+            self.rad = np.random.random(100) * 10 * self.radiance
+
+        self.selected = np.ones(self.rad.size, dtype=np.bool_)
 
         self.source = ColumnDataSource(data={
             'lon': [],
@@ -80,7 +91,8 @@ class DensityOverlay(object):
         self.update(left, right, bottom, top)
 
     def _make_dict(self, left, right, bottom, top):
-        ny = nx = 50
+
+        ny = nx = self.gridcount
         x = np.linspace(left, right, nx)
         y = np.linspace(bottom, top, ny)
 
@@ -89,9 +101,12 @@ class DensityOverlay(object):
         dw = (right - left) / (nx - 1)
         dh = (top - bottom) / (ny - 1)
 
+        print("Filter by radiance")
+        lon = self.lon[self.selected]
+        lat = self.lat[self.selected]
+
         print("Compute density")
-        pdf, count = kde.compute_density(self.lon, self.lat, xx, yy,
-                                         use_hsa=self.use_hsa)
+        pdf, count = kde.compute_density(lon, lat, xx, yy, use_hsa=self.use_hsa)
         self.count = count
 
         print("Done")
@@ -108,10 +123,10 @@ class DensityOverlay(object):
         }
 
     def update(self, left, right, bottom, top):
-        # TODO: The re-evaluation code goes here
         dct = self._make_dict(left, right, bottom, top)
         self.source.data = dct
-        self.plot.title = TITLE + " ({0} lightnings)".format(self.count)
+        self.plot.title = TITLE + " ({0} lightning strikes)".format(self.count)
+        self.last_view_port = left, right, bottom, top
 
     def draw(self):
         self.plot.rect(x="lon", y="lat", width="width", height="height",
@@ -131,6 +146,15 @@ class DensityOverlay(object):
 
         self.queue.clear()
 
+    def grid_change_listener(self, attr, old, new):
+        self.gridcount = new
+        self.update(*self.last_view_port)
+
+    def radiance_change_listener(self, attr, old, new):
+        self.radiance = new
+        self.selected = self.rad >= self.radiance
+        self.update(*self.last_view_port)
+
 
 def main():
     state_xs, state_ys = get_us_state_outline()
@@ -147,6 +171,15 @@ def main():
     density_overlay = DensityOverlay(plot, left, right, bottom, top)
     density_overlay.draw()
 
+    grid_slider = Slider(title="Grid", value=density_overlay.gridcount,
+                         start=10, end=100, step=10)
+    grid_slider.on_change("value", density_overlay.grid_change_listener)
+
+    radiance_slider = Slider(title="Radiance", value=density_overlay.radiance,
+                             start=np.min(density_overlay.rad),
+                             end=np.max(density_overlay.rad), step=10)
+    radiance_slider.on_change("value", density_overlay.radiance_change_listener)
+
     listener = ViewListener(plot, density_overlay, name="viewport")
 
     plot.x_range.on_change("start", listener)
@@ -161,7 +194,7 @@ def main():
     backend_select.on_change('value', density_overlay.backend_change_listener)
 
     doc = curdoc()
-    doc.add(VBox(children=[plot, backend_select]))
+    doc.add(VBox(children=[plot, grid_slider, radiance_slider, backend_select]))
     doc.add_periodic_callback(density_overlay.periodic_callback, 500)
 
 

@@ -34,15 +34,16 @@ def compute_density(lon, lat, xx, yy, use_hsa):
 
     pdf = np.zeros(support.shape[0], dtype=np.float64)
 
-    print(samples.shape, samples.dtype)
+    if samples.size:
+        print(samples.shape, samples.dtype)
 
-    start_time = timer()
-    if use_hsa:
-        print("HSA".center(80, '-'))
-        hsa_imp.hsa_multi_kde(support, samples, bwlist, pdf)
-    else:
-        print("CPU".center(80, '-'))
-        cpu_ref.multi_kde_seq(support, samples, bwlist, pdf)
-    end_time = timer()
-    print("duration", "{0:0.2f} seconds".format(end_time - start_time))
+        start_time = timer()
+        if use_hsa:
+            print("HSA".center(80, '-'))
+            hsa_imp.hsa_multi_kde(support, samples, bwlist, pdf)
+        else:
+            print("CPU".center(80, '-'))
+            cpu_ref.multi_kde_seq(support, samples, bwlist, pdf)
+        end_time = timer()
+        print("duration", "{0:0.2f} seconds".format(end_time - start_time))
     return pdf, samples.size
