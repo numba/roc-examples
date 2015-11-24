@@ -21,6 +21,9 @@ def load_file_as_dataframe(path):
 
 def filter_dataframes(df, lat_min, lat_max, lon_min, lon_max,
                       rad_min=MIN_RAD):
+    """
+    Filter a dataframe to only include data points within the given criteria
+    """
     lat_in_range = "(lat >= @lat_min and lat <= @lat_max)"
     lon_in_range = "(lon >= @lon_min and lon <= @lon_max)"
     rad_in_range = "(rad >= @rad_min)"
