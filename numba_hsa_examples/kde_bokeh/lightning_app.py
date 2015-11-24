@@ -205,5 +205,5 @@ def main():
     doc.add(VBox(children=[plot, grid_slider, radiance_slider, backend_select]))
     doc.add_periodic_callback(density_overlay.periodic_callback, 0.5)
 
-
-main()
+if __name__.startswith('bk_script_'):
+    main()
