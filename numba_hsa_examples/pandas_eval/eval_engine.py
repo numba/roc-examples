@@ -94,7 +94,8 @@ class NumbaEngine(engines.AbstractEngine):
     def _evaluate(self):
         # Get argument values
         env = self.expr.env
-        call_args = [np.asarray(env.resolve(name, False))
+        is_local = lambda x: x.startswith("__pd_eval_local_")
+        call_args = [np.asarray(env.resolve(name, is_local(name)))
                      for name in self._args]
         # Get argument types
         call_types = tuple(from_dtype(a.dtype) for a in call_args)
@@ -107,7 +108,7 @@ class NumbaEngine(engines.AbstractEngine):
             # Stringify the eval tree and get arg names
             nameset = set()
             exprstr = _stringify_eval_op_tree(self.expr.terms, nameset)
-            assert set(self._args) == nameset
+            assert set(filter(lambda x: not is_local(x), self._args)) == nameset
 
             function_name = '__numba_pandas_eval_ufunc'
             fn = self._compile(exprstr, self._args, call_types, function_name)
@@ -127,6 +128,7 @@ class NumbaHsaEngine(NumbaEngine):
 
 def register():
     from numba.hsa import is_available
-    assert is_available()
+
     engines._engines['numba.cpu'] = NumbaCpuEngine
-    engines._engines['numba.hsa'] = NumbaHsaEngine
+    if is_available():
+        engines._engines['numba.hsa'] = NumbaHsaEngine
