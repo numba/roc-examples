@@ -242,7 +242,7 @@ def _get_grouper(obj, key=None, axis=0, level=None, sort=True):
 
 
 class CustomGrouper(BaseGrouper):
-    def _aggregate(self, result, counts, values, agg_func, is_numeric):
+    def _aggregate(self, result, counts, values, labels, agg_func, is_numeric):
         _logger.info("_aggregate %s", agg_func)
         # NOTE: Intercept aggregate that has a HSA equivalent
         # The rest are the same as the base class. XXX call base class, perhaps?
