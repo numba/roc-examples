@@ -3,10 +3,17 @@ import pandas as pd
 from functools import reduce
 import numpy as np
 import os
+import numba.hsa
+
+from numba_hsa_examples.pandas_eval import eval_engine
+
+eval_engine.register()
 
 basedir = os.path.dirname(__file__)
 
 MIN_RAD = 30000
+
+QUERY_ENGINE = "numba.hsa" if numba.hsa.is_available() else "numba.cpu"
 
 
 def load_file_as_dataframe(path):
@@ -29,7 +36,7 @@ def filter_dataframes(df, lat_min, lat_max, lon_min, lon_max,
     rad_in_range = "(rad >= @rad_min)"
     conditions = lat_in_range, lon_in_range, rad_in_range
     query = ' and '.join(conditions)
-    out = df.query(query)
+    out = df.query(query, engine=QUERY_ENGINE)
     print("reduce data elements from {0} to {1}".format(df.size, out.size))
     return out
 
