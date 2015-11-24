@@ -1,5 +1,4 @@
 from __future__ import print_function, absolute_import
-
 import math
 import numpy as np
 from pandas.computation import engines, ops
@@ -51,7 +50,9 @@ def _stringify_eval_op_tree(op, nameset):
                     'rhs': _stringify_eval_op_tree(op.rhs, nameset)}
         return fmt.format(**data)
     elif isinstance(op, ops.Term):
-        if not op.isscalar and not op.is_datetime:
+        if ((not op.isscalar and not op.is_datetime) or
+                (isinstance(op.name, str) and
+                     op.name.startswith('__pd_eval_local_'))):
             name = str(op)
             nameset.add(name)
             return name
@@ -108,7 +109,7 @@ class NumbaEngine(engines.AbstractEngine):
             # Stringify the eval tree and get arg names
             nameset = set()
             exprstr = _stringify_eval_op_tree(self.expr.terms, nameset)
-            assert set(filter(lambda x: not is_local(x), self._args)) == nameset
+            assert set(self._args) == nameset
 
             function_name = '__numba_pandas_eval_ufunc'
             fn = self._compile(exprstr, self._args, call_types, function_name)
