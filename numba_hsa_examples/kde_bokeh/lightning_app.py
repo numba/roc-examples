@@ -1,6 +1,6 @@
 """
 Launch with
-PYTHONPATH=`pwd` bokeh serve numba_hsa_examples/kde_bokeh/map_patch.py
+PYTHONPATH=`pwd` bokeh serve numba_hsa_examples/kde_bokeh/lightning_app.py
 """
 from bokeh.sampledata import us_states
 from bokeh.plotting import Figure
