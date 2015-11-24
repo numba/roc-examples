@@ -6,8 +6,6 @@ import os
 
 basedir = os.path.dirname(__file__)
 
-# MIN_RAD = 14711.8
-# MIN_RAD = 37324.5
 MIN_RAD = 30000
 
 
@@ -23,20 +21,21 @@ def load_file_as_dataframe(path):
 
 def filter_dataframes(df, lat_min, lat_max, lon_min, lon_max,
                       rad_min=MIN_RAD):
-    print("filter")
-    lat_in_range = (df.lat >= lat_min) & (df.lat <= lat_max)
-    lon_in_range = (df.lon >= lon_min) & (df.lon <= lon_max)
-    rad_in_range = df.rad > rad_min
-    out = df[lat_in_range & lon_in_range & rad_in_range]
-    print("reduce from {0} to {1}".format(df.size, out.size))
+    lat_in_range = "(lat >= @lat_min and lat <= @lat_max)"
+    lon_in_range = "(lon >= @lon_min and lon <= @lon_max)"
+    rad_in_range = "(rad >= @rad_min)"
+    conditions = lat_in_range, lon_in_range, rad_in_range
+    query = ' and '.join(conditions)
+    out = df.query(query)
+    print("reduce data elements from {0} to {1}".format(df.size, out.size))
     return out
 
 
 def load_all_data(lon_min, lon_max, lat_min, lat_max):
-    # files = ["data/event_00.hdf5",
-    #          "data/event_15.hdf5"]
-    filenames = ["data/event_{0:02d}.hdf5".format(i) for i in range(5)]
-
+    """
+    Returns all the data points in a DataFrame
+    """
+    filenames = ['data/events.hdf5']
     files = [os.path.join(basedir, f) for f in filenames]
 
     dfs = (load_file_as_dataframe(f) for f in files)
@@ -46,8 +45,23 @@ def load_all_data(lon_min, lon_max, lat_min, lat_max):
     return reduce(lambda a, b: a.append(b), filtered)
 
 
-if __name__ == '__main__':
+def downsample_dataset():
+    """
+    Used to create the "data/events.hdf5" dataset from the original full
+    dataset.
+    """
     df = load_all_data(-125, -65, 25, 50)
     rad = df.rad.values
     print(rad.size)
-    print(np.mean(rad), np.std(rad))
+    print('mean', np.mean(rad), '; std', np.std(rad))
+
+    f = h5py.File('myfile.hdf5', 'w')
+    g = f.create_group('events')
+    attrs = dict(compression="gzip", compression_opts=9, shuffle=True)
+    g.create_dataset("latitude", data=df.lat.values, **attrs)
+    g.create_dataset("longitude", data=df.lon.values, **attrs)
+    g.create_dataset("radiance", data=df.rad.values, **attrs)
+
+
+if __name__ == '__main__':
+    downsample_dataset()

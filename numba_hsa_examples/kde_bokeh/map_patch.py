@@ -10,6 +10,7 @@ from bokeh.models.widgets import HBox, VBox, Select, Slider
 from bokeh import palettes
 import numpy as np
 import itertools
+import pandas as pd
 from numba_hsa_examples.kde_bokeh import kde
 from numba_hsa_examples.kde_bokeh import dataloader
 from numba_hsa_examples.kde_bokeh import plotting
@@ -79,8 +80,6 @@ class DensityOverlay(object):
             self.lat = np.random.random(100) * (top - bottom) + bottom
             self.rad = np.random.random(100) * 10 * self.radiance
 
-        self.selected = np.ones(self.rad.size, dtype=np.bool_)
-
         self.source = ColumnDataSource(data={
             'lon': [],
             'lat': [],
@@ -101,9 +100,18 @@ class DensityOverlay(object):
         dw = (right - left) / (nx - 1)
         dh = (top - bottom) / (ny - 1)
 
-        print("Filter by radiance")
-        lon = self.lon[self.selected]
-        lat = self.lat[self.selected]
+        print("Filter")
+        df = pd.DataFrame({'lon': self.lon,
+                           'lat': self.lat,
+                           'rad': self.rad,})
+        df = dataloader.filter_dataframes(df,
+                                          lat_min=bottom,
+                                          lat_max=top,
+                                          lon_min=left,
+                                          lon_max=right,
+                                          rad_min=self.radiance)
+        lon = df.lon.values
+        lat = df.lat.values
 
         print("Compute density")
         pdf, count = kde.compute_density(lon, lat, xx, yy, use_hsa=self.use_hsa)
@@ -152,7 +160,6 @@ class DensityOverlay(object):
 
     def radiance_change_listener(self, attr, old, new):
         self.radiance = new
-        self.selected = self.rad >= self.radiance
         self.update(*self.last_view_port)
 
 
@@ -171,11 +178,12 @@ def main():
     density_overlay = DensityOverlay(plot, left, right, bottom, top)
     density_overlay.draw()
 
-    grid_slider = Slider(title="Grid", value=density_overlay.gridcount,
+    grid_slider = Slider(title="Details", value=density_overlay.gridcount,
                          start=10, end=100, step=10)
     grid_slider.on_change("value", density_overlay.grid_change_listener)
 
-    radiance_slider = Slider(title="Radiance", value=density_overlay.radiance,
+    radiance_slider = Slider(title="Min. Radiance",
+                             value=density_overlay.radiance,
                              start=np.min(density_overlay.rad),
                              end=np.max(density_overlay.rad), step=10)
     radiance_slider.on_change("value", density_overlay.radiance_change_listener)
