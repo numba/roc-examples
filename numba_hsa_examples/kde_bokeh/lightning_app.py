@@ -171,7 +171,9 @@ def main():
                   plot_height=700,
                   tools="pan, wheel_zoom, box_zoom, reset",
                   x_range=Range1d(left, right),
-                  y_range=Range1d(bottom, top))
+                  y_range=Range1d(bottom, top),
+                  x_axis_label='Longitude',
+                  y_axis_label='Latitude')
 
     plot_state_outline(plot, state_xs, state_ys)
 
