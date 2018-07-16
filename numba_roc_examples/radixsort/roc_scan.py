@@ -1,11 +1,11 @@
 from __future__ import print_function, division, absolute_import
 import numpy as np
-from numba import hsa, intp
+from numba import roc, intp
 
 _WARPSIZE = 64
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def local_shuffle(tid, value, mask, temp):
     """
     * temp: shared array
@@ -13,25 +13,25 @@ def local_shuffle(tid, value, mask, temp):
 
     Note: This function must be called by all threads in the block
     """
-    hsa.barrier(0)
+    roc.barrier(0)
     temp[tid] = value
-    hsa.barrier(0)
+    roc.barrier(0)
     output = temp[mask]
-    hsa.barrier(0)
+    roc.barrier(0)
     return output
 
 
-@hsa.jit
+@roc.jit
 def kernel_shuffle(arr, masks):
-    tid = hsa.get_local_id(0)
-    temp = hsa.shared.array(256, dtype=intp)
+    tid = roc.get_local_id(0)
+    temp = roc.shared.array(256, dtype=intp)
     val = arr[tid]
     mask = masks[tid]
     out = local_shuffle(tid, val, mask, temp)
     arr[tid] = out
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def local_inclusive_scan(tid, value, nelem, temp):
     """
     * temp: shared array
@@ -49,11 +49,11 @@ def local_inclusive_scan(tid, value, nelem, temp):
     return value
 
 
-@hsa.jit
+@roc.jit
 def kernel_scan(values):
-    tid = hsa.get_local_id(0)
+    tid = roc.get_local_id(0)
     nelem = values.size
-    temp = hsa.shared.array(256, dtype=intp)
+    temp = roc.shared.array(256, dtype=intp)
     value = values[tid]
     out = local_inclusive_scan(tid, value, nelem, temp)
     values[tid] = out
@@ -62,62 +62,62 @@ def kernel_scan(values):
 ###############################################################################
 # Alternative implementation
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def shuffle_up(val, width):
-    tid = hsa.get_local_id(0)
-    hsa.wavebarrier()
-    res = hsa.activelanepermute_wavewidth(val, tid - width, 0, False)
+    tid = roc.get_local_id(0)
+    roc.wavebarrier()
+    res = roc.activelanepermute_wavewidth(val, tid - width, 0, False)
     return res
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def broadcast(val, src):
-    hsa.wavebarrier()
-    return hsa.activelanepermute_wavewidth(val, src, 0, False)
+    roc.wavebarrier()
+    return roc.activelanepermute_wavewidth(val, src, 0, False)
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def shuf_wave_inclusive_scan(val):
-    tid = hsa.get_local_id(0)
+    tid = roc.get_local_id(0)
     lane = tid & (_WARPSIZE - 1)
 
-    hsa.wavebarrier()
+    roc.wavebarrier()
     shuf = shuffle_up(val, 1)
     if lane >= 1:
         val += shuf
 
-    hsa.wavebarrier()
+    roc.wavebarrier()
     shuf = shuffle_up(val, 2)
     if lane >= 2:
         val += shuf
 
-    hsa.wavebarrier()
+    roc.wavebarrier()
     shuf = shuffle_up(val, 4)
     if lane >= 4:
         val += shuf
 
-    hsa.wavebarrier()
+    roc.wavebarrier()
     shuf = shuffle_up(val, 8)
     if lane >= 8:
         val += shuf
 
-    hsa.wavebarrier()
+    roc.wavebarrier()
     shuf = shuffle_up(val, 16)
     if lane >= 16:
         val += shuf
 
-    hsa.wavebarrier()
+    roc.wavebarrier()
     shuf = shuffle_up(val, 32)
     if lane >= 32:
         val += shuf
 
-    hsa.wavebarrier()
+    roc.wavebarrier()
     return val
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def shuf_wave_exclusive_scan(val):
-    tid = hsa.get_local_id(0)
+    tid = roc.get_local_id(0)
     lane = tid & (_WARPSIZE - 1)
 
     incl = shuf_wave_inclusive_scan(val)
@@ -128,7 +128,7 @@ def shuf_wave_exclusive_scan(val):
     return excl, the_sum
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def shuf_device_inclusive_scan(data, temp):
     """
     Args
@@ -138,28 +138,28 @@ def shuf_device_inclusive_scan(data, temp):
     temp: shared memory for temporary work, requires at least
     threadcount/wavesize storage
     """
-    tid = hsa.get_local_id(0)
+    tid = roc.get_local_id(0)
     lane = tid & (_WARPSIZE - 1)
     warpid = tid >> 6
 
-    hsa.barrier()
+    roc.barrier()
 
     # Scan warps in parallel
     warp_scan_res = shuf_wave_inclusive_scan(data)
 
-    hsa.barrier()
+    roc.barrier()
 
     # Store partial sum into shared memory
     if lane == (_WARPSIZE - 1):
         temp[warpid] = warp_scan_res
 
-    hsa.barrier()
+    roc.barrier()
 
     # Scan the partial sum by first wave
     if warpid == 0:
         temp[lane] = shuf_wave_inclusive_scan(temp[lane])
 
-    hsa.barrier()
+    roc.barrier()
 
     # Get block sum for each wave
     blocksum = 0  # first wave is 0
@@ -169,7 +169,7 @@ def shuf_device_inclusive_scan(data, temp):
     return warp_scan_res + blocksum
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def local_inclusive_scan_shuf(tid, value, nelem, temp):
     """
     * temp: shared array
@@ -177,26 +177,26 @@ def local_inclusive_scan_shuf(tid, value, nelem, temp):
 
     Note: This function must be called by all threads in the block
     """
-    hsa.barrier()
-    hsa.wavebarrier()
+    roc.barrier()
+    roc.wavebarrier()
     res = shuf_device_inclusive_scan(value, temp)
-    hsa.barrier()
+    roc.barrier()
     return res
 
 
-@hsa.jit
+@roc.jit
 def kernel_scan_shuf(values):
-    tid = hsa.get_local_id(0)
+    tid = roc.get_local_id(0)
     nelem = values.size
-    temp = hsa.shared.array(256, dtype=intp)
+    temp = roc.shared.array(256, dtype=intp)
     value = values[tid]
     out = local_inclusive_scan(tid, value, nelem, temp)
     values[tid] = out
 
 
-@hsa.jit
+@roc.jit
 def kernel_wave_excl_scan_shuf(values, out, psum):
-    tid = hsa.get_local_id(0)
+    tid = roc.get_local_id(0)
     val = values[tid]
     out[tid], psum[tid] = shuf_wave_exclusive_scan(val)
 

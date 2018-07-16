@@ -1,7 +1,8 @@
 from __future__ import print_function, division, absolute_import
 
 import numpy as np
-from pandas.core.groupby import Grouper, BaseGrouper, Grouping, _is_label_like
+from pandas.core.groupby import Grouper
+from pandas.core.groupby.groupby import BaseGrouper, Grouping, _is_label_like
 from pandas.core.index import Index, MultiIndex
 
 from pandas import compat
@@ -9,10 +10,10 @@ from pandas.core.series import Series
 from pandas.core.frame import DataFrame
 import pandas.core.common as com
 
-from numba_hsa_examples.radixsort.sort_driver import HsaRadixSortDriver
-from numba import hsa, jit
+from numba_roc_examples.radixsort.sort_driver import RocRadixSortDriver
+from numba import roc, jit
 
-from numba_hsa_examples.reduction.reduction import (device_reduce_sum,
+from numba_roc_examples.reduction.reduction import (device_reduce_sum,
                                                     device_reduce_max,
                                                     device_reduce_min)
 
@@ -21,10 +22,10 @@ import logging
 _logger = logging.getLogger(__name__)
 
 
-class HSAGrouper(Grouper):
+class ROCGrouper(Grouper):
     def __init__(self, *args, **kwargs):
         kwargs['sort'] = True
-        super(HSAGrouper, self).__init__(*args, **kwargs)
+        super(ROCGrouper, self).__init__(*args, **kwargs)
 
     def _get_grouper(self, obj):
 
@@ -105,7 +106,7 @@ class HSAGrouper(Grouper):
         np_array = ax.get_values()
         # return np_array.argsort()
         # ax = ax.take(indexer)
-        sorter = HsaRadixSortDriver()
+        sorter = RocRadixSortDriver()
         sorted_array, indices = sorter.sort_with_indices(np_array)
         return sorted_array, indices
 
@@ -244,7 +245,7 @@ def _get_grouper(obj, key=None, axis=0, level=None, sort=True):
 class CustomGrouper(BaseGrouper):
     def _aggregate(self, result, counts, values, labels, agg_func, is_numeric):
         _logger.info("_aggregate %s", agg_func)
-        # NOTE: Intercept aggregate that has a HSA equivalent
+        # NOTE: Intercept aggregate that has a ROC equivalent
         # The rest are the same as the base class. XXX call base class, perhaps?
         comp_ids, _, ngroups = self.group_info
         if values.ndim > 3:
@@ -261,7 +262,7 @@ class CustomGrouper(BaseGrouper):
                                                         agg_func)
                 fn(result, counts, values, comp_ids)
             except:
-                _logger.exception("HSA cusotm grouper failed with exception")
+                _logger.exception("ROC cusotm grouper failed with exception")
                 raise
 
         return result
@@ -270,7 +271,7 @@ class CustomGrouper(BaseGrouper):
 SPEED_BARRIER = 10 ** 5 * 5
 
 
-def _hsa_group_agg(cpu_agg, gpu_agg, result, counts, values, comp_ids):
+def _roc_group_agg(cpu_agg, gpu_agg, result, counts, values, comp_ids):
     assert comp_ids.size == values.shape[0]
     assert values.shape[1] == result.shape[1]
 
@@ -294,37 +295,37 @@ def _hsa_group_agg(cpu_agg, gpu_agg, result, counts, values, comp_ids):
         start = stop
 
 
-def hsa_group_mean(result, counts, values, comp_ids):
+def roc_group_mean(result, counts, values, comp_ids):
     def device_mean(inputs):
         return device_reduce_sum(inputs) / inputs.size
 
     def host_mean(inputs):
         return inputs.mean()
 
-    _hsa_group_agg(host_mean, device_mean, result, counts, values, comp_ids)
+    _roc_group_agg(host_mean, device_mean, result, counts, values, comp_ids)
 
 
-def hsa_group_max(result, counts, values, comp_ids):
+def roc_group_max(result, counts, values, comp_ids):
     def device_max(inputs):
         return device_reduce_max(inputs)
 
     def host_max(inputs):
         return inputs.max()
 
-    _hsa_group_agg(host_max, device_max, result, counts, values, comp_ids)
+    _roc_group_agg(host_max, device_max, result, counts, values, comp_ids)
 
 
-def hsa_group_min(result, counts, values, comp_ids):
+def roc_group_min(result, counts, values, comp_ids):
     def device_min(inputs):
         return device_reduce_min(inputs)
 
     def host_min(inputs):
         return inputs.min()
 
-    _hsa_group_agg(host_min, device_min, result, counts, values, comp_ids)
+    _roc_group_agg(host_min, device_min, result, counts, values, comp_ids)
 
 
-def hsa_group_var(result, counts, values, comp_ids):
+def roc_group_var(result, counts, values, comp_ids):
     def device_var(inputs):
         div = inputs.size - 1
         if div == 0:
@@ -334,22 +335,22 @@ def hsa_group_var(result, counts, values, comp_ids):
         nelem = inputs.size
         threads = 256
         groups = (nelem + threads - 1) // threads
-        hsa_var_diff_kernel[groups, threads](diff, inputs, mean)
+        roc_var_diff_kernel[groups, threads](diff, inputs, mean)
         psum = device_reduce_sum(diff)
         return psum / div
 
     def host_var(inputs):
         return comp_var(inputs, inputs.mean(), 1)
 
-    _hsa_group_agg(host_var, device_var, result, counts, values, comp_ids)
+    _roc_group_agg(host_var, device_var, result, counts, values, comp_ids)
 
 
 NAN = float('nan')
 
 
-@hsa.jit
-def hsa_var_diff_kernel(diff, inputs, mean):
-    gid = hsa.get_global_id(0)
+@roc.jit
+def roc_var_diff_kernel(diff, inputs, mean):
+    gid = roc.get_global_id(0)
     if gid < inputs.size:
         val = inputs[gid]
         x = val - mean
@@ -391,10 +392,10 @@ def comp_var(inp, mean, ddof):
 """
 
 _optimized_aggregate_functions = {
-    'group_mean_float64': hsa_group_mean,
-    'group_max_float64': hsa_group_max,
-    'group_min_float64': hsa_group_min,
-    'group_var_float64': hsa_group_var,
+    'group_mean_float64': roc_group_mean,
+    'group_max_float64': roc_group_max,
+    'group_min_float64': roc_group_min,
+    'group_var_float64': roc_group_var,
 
 }
 

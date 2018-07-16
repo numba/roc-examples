@@ -1,19 +1,22 @@
 """
 Launch with
-PYTHONPATH=`pwd` bokeh serve numba_hsa_examples/kde_bokeh/lightning_app.py
+PYTHONPATH=`pwd` bokeh serve numba_roc_examples/kde_bokeh/lightning_app.py
 """
 from bokeh.sampledata import us_states
 from bokeh.plotting import Figure
 from bokeh.io import curdoc
 from bokeh.models import Range1d, ColumnDataSource
-from bokeh.models.widgets import HBox, VBox, Select, Slider
+from bokeh.models.layouts import Row, Column
+from bokeh.models.widgets.inputs import Select
+from bokeh.models.widgets.sliders import Slider
 from bokeh import palettes
 import numpy as np
 import itertools
 import pandas as pd
-from numba_hsa_examples.kde_bokeh import kde
-from numba_hsa_examples.kde_bokeh import dataloader
-from numba_hsa_examples.kde_bokeh import plotting
+
+from numba_roc_examples.kde_bokeh import kde
+from numba_roc_examples.kde_bokeh import dataloader
+from numba_roc_examples.kde_bokeh import plotting
 
 TITLE = "US Lightning Density"
 
@@ -66,7 +69,7 @@ class DensityOverlay(object):
         assert self.radiance > dataloader.MIN_RAD
         self.plot = plot
         self.queue = []
-        self.use_hsa = bool(kde.USE_HSA)
+        self.use_roc = bool(kde.USE_ROC)
         self.last_view_port = left, right, bottom, top
 
         print("Loading data")
@@ -114,7 +117,7 @@ class DensityOverlay(object):
         lat = df.lat.values
 
         print("Compute density")
-        pdf, count = kde.compute_density(lon, lat, xx, yy, use_hsa=self.use_hsa)
+        pdf, count = kde.compute_density(lon, lat, xx, yy, use_roc=self.use_roc)
         self.count = count
 
         print("Done")
@@ -133,7 +136,7 @@ class DensityOverlay(object):
     def update(self, left, right, bottom, top):
         dct = self._make_dict(left, right, bottom, top)
         self.source.data = dct
-        self.plot.title = TITLE + " ({0} lightning strikes)".format(self.count)
+        self.plot.title.text = TITLE + " ({0} lightning strikes)".format(self.count)
         self.last_view_port = left, right, bottom, top
 
     def draw(self):
@@ -142,7 +145,7 @@ class DensityOverlay(object):
                        source=self.source)
 
     def backend_change_listener(self, attr, old, new):
-        self.use_hsa = new == 'HSA'
+        self.use_roc = new == 'ROC'
         print("select", new)
 
     def periodic_callback(self):
@@ -197,14 +200,14 @@ def main():
     plot.y_range.on_change("start", listener)
     plot.y_range.on_change("end", listener)
 
-    backends = ["CPU", "HSA"]
-    default_value = backends[kde.USE_HSA]
+    backends = ["CPU", "ROC"]
+    default_value = backends[kde.USE_ROC]
     backend_select = Select(name="backend", value=default_value,
                             options=backends)
     backend_select.on_change('value', density_overlay.backend_change_listener)
 
     doc = curdoc()
-    doc.add(VBox(children=[plot, grid_slider, radiance_slider, backend_select]))
+    doc.add_root(Column(children=[plot, grid_slider, radiance_slider, backend_select]))
     doc.add_periodic_callback(density_overlay.periodic_callback, 0.5)
 
 if __name__.startswith('bk_script_'):

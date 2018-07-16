@@ -7,7 +7,7 @@ from pprint import pprint
 import pandas as pd
 import numpy as np
 
-from .groupby import HSAGrouper
+from .groupby import ROCGrouper
 
 
 def benchmark(nelem, numgroup):
@@ -25,8 +25,8 @@ def benchmark(nelem, numgroup):
     out['cpu_groupby'] = timer() - ts
 
     ts = timer()
-    got_grouper = df.groupby(HSAGrouper('a', sort=True))
-    out['hsa_groupby'] = timer() - ts
+    got_grouper = df.groupby(ROCGrouper('a', sort=True))
+    out['roc_groupby'] = timer() - ts
 
     expeceted_groups = expected_grouper.groups
     got_groups = got_grouper.groups
@@ -41,7 +41,7 @@ def benchmark(nelem, numgroup):
 
     ts = timer()
     got_mean = got_grouper.mean()
-    out['hsa_mean'] = timer() - ts
+    out['roc_mean'] = timer() - ts
 
     np.testing.assert_allclose(expected_mean.values, got_mean.values)
 
@@ -51,7 +51,7 @@ def benchmark(nelem, numgroup):
 
     ts = timer()
     got_var = got_grouper.var()
-    out['hsa_var'] = timer() - ts
+    out['roc_var'] = timer() - ts
 
     np.testing.assert_allclose(expected_var.values, got_var.values)
 
@@ -61,7 +61,7 @@ def benchmark(nelem, numgroup):
 
     ts = timer()
     got_max = got_grouper.max()
-    out['hsa_max'] = timer() - ts
+    out['roc_max'] = timer() - ts
 
     np.testing.assert_equal(expected_max.values, got_max.values)
 
@@ -71,7 +71,7 @@ def benchmark(nelem, numgroup):
 
     ts = timer()
     got_min = got_grouper.min()
-    out['hsa_min'] = timer() - ts
+    out['roc_min'] = timer() - ts
 
     np.testing.assert_equal(expected_min.values, got_min.values)
     return out

@@ -6,7 +6,8 @@ from scipy import stats
 import statsmodels.api as sm
 from statsmodels.distributions.mixture_rvs import mixture_rvs
 
-from bokeh.plotting import figure, show, output_file, vplot
+from bokeh.plotting import figure, show, output_file
+from bokeh.layouts import column
 from bokeh import palettes
 
 from numba import njit
@@ -147,7 +148,7 @@ def plot_uni_test():
     print(len(kde.support), len(kde.density))
 
     print(kde.density.sum())
-    show(vplot(p1, p2, p3))
+    show(column(p1, p2, p3))
 
 
 def plot_multi_test():
@@ -188,7 +189,7 @@ def plot_multi_test():
     p2.square(support[:, 0], support[:, 1], size=5,
               color=cm.color(expect_pdf / np.ptp(expect_pdf)))
 
-    show(vplot(p1, p2))
+    show(column(p1, p2))
 
 
 def test_uni_kde():

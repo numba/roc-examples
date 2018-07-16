@@ -1,7 +1,7 @@
 from __future__ import print_function, absolute_import, division
 
 import numpy as np
-from numba import hsa
+from numba import roc
 from numba import intp, float64
 
 WAVESIZE = 64
@@ -11,21 +11,24 @@ NEG_INF = float('-inf')
 POS_INF = float('+inf')
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def shuffle_down(val, width):
-    tid = hsa.get_local_id(0)
-    hsa.wavebarrier()
-    res = hsa.activelanepermute_wavewidth(val, tid + width, 0, False)
+    tid = roc.get_local_id(0)
+    roc.wavebarrier()
+    idx = (tid + width) % WAVESIZE
+    res = roc.ds_permute(idx, val)
     return res
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def broadcast(val, src):
-    hsa.wavebarrier()
-    return hsa.activelanepermute_wavewidth(val, src, 0, False)
+    tid = roc.get_local_id(0)
+    roc.wavebarrier()
+    val[tid] = src
+    return val
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def wave_reduce_sum(val):
     """
     First thread in wave gets the result
@@ -38,7 +41,7 @@ def wave_reduce_sum(val):
     return val
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def wave_reduce_max(val):
     """
     First thread in wave gets the result
@@ -51,7 +54,7 @@ def wave_reduce_max(val):
     return val
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def wave_reduce_min(val):
     """
     First thread in wave gets the result
@@ -64,7 +67,7 @@ def wave_reduce_min(val):
     return val
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def wave_reduce_sum_all(val):
     """
     All threads get the result
@@ -73,7 +76,7 @@ def wave_reduce_sum_all(val):
     return broadcast(res, 0)
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def wave_reduce_max_all(val):
     """
     All threads get the result
@@ -82,7 +85,7 @@ def wave_reduce_max_all(val):
     return broadcast(res, 0)
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def wave_reduce_min_all(val):
     """
     All threads get the result
@@ -92,9 +95,9 @@ def wave_reduce_min_all(val):
 
 
 def test_wave_reduce_sum():
-    @hsa.jit
+    @roc.jit
     def test_wave_reduce(inp, out):
-        tid = hsa.get_local_id(0)
+        tid = roc.get_local_id(0)
         val = inp[tid]
         out[tid] = wave_reduce_sum_all(val)
 
@@ -115,9 +118,9 @@ def test_wave_reduce_sum():
 
 
 def test_wave_reduce_max():
-    @hsa.jit
+    @roc.jit
     def test_wave_reduce(inp, out):
-        tid = hsa.get_local_id(0)
+        tid = roc.get_local_id(0)
         val = inp[tid]
         out[tid] = wave_reduce_max_all(val)
 
@@ -138,9 +141,9 @@ def test_wave_reduce_max():
 
 
 def test_wave_reduce_min():
-    @hsa.jit
+    @roc.jit
     def test_wave_reduce(inp, out):
-        tid = hsa.get_local_id(0)
+        tid = roc.get_local_id(0)
         val = inp[tid]
         out[tid] = wave_reduce_min_all(val)
 
@@ -161,9 +164,9 @@ def test_wave_reduce_min():
 
 
 def test_wave_reduce_min_real():
-    @hsa.jit
+    @roc.jit
     def test_wave_reduce(inp, out):
-        tid = hsa.get_local_id(0)
+        tid = roc.get_local_id(0)
         val = inp[tid]
         out[tid] = wave_reduce_min_all(val)
 
@@ -188,24 +191,24 @@ def group_reduce_sum_builder(dtype):
     Build reducer of max 64*64 threads per group.
     """
 
-    @hsa.jit(device=True)
+    @roc.jit(device=True)
     def group_reduce_sum(val):
         """
         First thread of first wave get the result
         """
-        tid = hsa.get_local_id(0)
-        blksz = hsa.get_local_size(0)
+        tid = roc.get_local_id(0)
+        blksz = roc.get_local_size(0)
         wid = tid >> WAVEBITS
         lane = tid & (WAVESIZE - 1)
 
-        sm_partials = hsa.shared.array(WAVESIZE, dtype=dtype)
+        sm_partials = roc.shared.array(WAVESIZE, dtype=dtype)
 
         val = wave_reduce_sum(val)
 
         if lane == 0:
             sm_partials[wid] = val
 
-        hsa.barrier()
+        roc.barrier()
 
         val = sm_partials[lane] if tid < (blksz // WAVESIZE) else 0
 
@@ -222,24 +225,24 @@ def group_reduce_max_builder(dtype):
     Build reducer of max 64*64 threads per group.
     """
 
-    @hsa.jit(device=True)
+    @roc.jit(device=True)
     def group_reduce_max(val):
         """
         First thread of first wave get the result
         """
-        tid = hsa.get_local_id(0)
-        blksz = hsa.get_local_size(0)
+        tid = roc.get_local_id(0)
+        blksz = roc.get_local_size(0)
         wid = tid >> WAVEBITS
         lane = tid & (WAVESIZE - 1)
 
-        sm_partials = hsa.shared.array(WAVESIZE, dtype=dtype)
+        sm_partials = roc.shared.array(WAVESIZE, dtype=dtype)
 
         val = wave_reduce_max(val)
 
         if lane == 0:
             sm_partials[wid] = val
 
-        hsa.barrier()
+        roc.barrier()
 
         val = sm_partials[lane] if tid < (blksz // WAVESIZE) else dtype(NEG_INF)
 
@@ -256,24 +259,24 @@ def group_reduce_min_builder(dtype):
     Build reducer of min 64*64 threads per group.
     """
 
-    @hsa.jit(device=True)
+    @roc.jit(device=True)
     def group_reduce_min(val):
         """
         First thread of first wave get the result
         """
-        tid = hsa.get_local_id(0)
-        blksz = hsa.get_local_size(0)
+        tid = roc.get_local_id(0)
+        blksz = roc.get_local_size(0)
         wid = tid >> WAVEBITS
         lane = tid & (WAVESIZE - 1)
 
-        sm_partials = hsa.shared.array(WAVESIZE, dtype=dtype)
+        sm_partials = roc.shared.array(WAVESIZE, dtype=dtype)
 
         val = wave_reduce_min(val)
 
         if lane == 0:
             sm_partials[wid] = val
 
-        hsa.barrier()
+        roc.barrier()
 
         val = sm_partials[lane] if tid < (blksz // WAVESIZE) else dtype(POS_INF)
 
@@ -296,9 +299,9 @@ group_reduce_min_float64 = group_reduce_min_builder(float64)
 
 
 def test_group_reduce_sum_intp():
-    @hsa.jit
+    @roc.jit
     def test_group_reduce(inp, out):
-        gid = hsa.get_global_id(0)
+        gid = roc.get_global_id(0)
         val = inp[gid]
         val = group_reduce_sum_intp(val)
         out[gid] = val
@@ -310,9 +313,9 @@ def test_group_reduce_sum_intp():
 
 
 def test_group_reduce_sum_float64():
-    @hsa.jit
+    @roc.jit
     def test_group_reduce(inp, out):
-        gid = hsa.get_global_id(0)
+        gid = roc.get_global_id(0)
         val = inp[gid]
         val = group_reduce_sum_float64(val)
         out[gid] = val
@@ -324,9 +327,9 @@ def test_group_reduce_sum_float64():
 
 
 def test_group_reduce_max_intp():
-    @hsa.jit
+    @roc.jit
     def test_group_reduce(inp, out):
-        gid = hsa.get_global_id(0)
+        gid = roc.get_global_id(0)
         val = inp[gid]
         val = group_reduce_max_intp(val)
         out[gid] = val
@@ -338,9 +341,9 @@ def test_group_reduce_max_intp():
 
 
 def test_group_reduce_max_float64():
-    @hsa.jit
+    @roc.jit
     def test_group_reduce(inp, out):
-        gid = hsa.get_global_id(0)
+        gid = roc.get_global_id(0)
         val = inp[gid]
         val = group_reduce_max_float64(val)
         out[gid] = val
@@ -352,9 +355,9 @@ def test_group_reduce_max_float64():
 
 
 def test_group_reduce_min_intp():
-    @hsa.jit
+    @roc.jit
     def test_group_reduce(inp, out):
-        gid = hsa.get_global_id(0)
+        gid = roc.get_global_id(0)
         val = inp[gid]
         val = group_reduce_min_intp(val)
         out[gid] = val
@@ -366,9 +369,9 @@ def test_group_reduce_min_intp():
 
 
 def test_group_reduce_min_float64():
-    @hsa.jit
+    @roc.jit
     def test_group_reduce(inp, out):
-        gid = hsa.get_global_id(0)
+        gid = roc.get_global_id(0)
         val = inp[gid]
         val = group_reduce_min_float64(val)
         out[gid] = val
@@ -387,12 +390,12 @@ def kernel_reduce_sum_builder(dtype):
 
     group_reducer = group_fn_map[dtype]
 
-    @hsa.jit
+    @roc.jit
     def kernel_reduce_sum(inp, out, nelem):
-        tid = hsa.get_local_id(0)
-        blkid = hsa.get_group_id(0)
-        blksz = hsa.get_local_size(0)
-        numgroup = hsa.get_num_groups(0)
+        tid = roc.get_local_id(0)
+        blkid = roc.get_group_id(0)
+        blksz = roc.get_local_size(0)
+        numgroup = roc.get_num_groups(0)
 
         i = blkid * blksz + tid
 
@@ -416,12 +419,12 @@ def kernel_reduce_max_builder(dtype):
 
     group_reducer = group_fn_map[dtype]
 
-    @hsa.jit
+    @roc.jit
     def kernel_reduce_max(inp, out, nelem):
-        tid = hsa.get_local_id(0)
-        blkid = hsa.get_group_id(0)
-        blksz = hsa.get_local_size(0)
-        numgroup = hsa.get_num_groups(0)
+        tid = roc.get_local_id(0)
+        blkid = roc.get_group_id(0)
+        blksz = roc.get_local_size(0)
+        numgroup = roc.get_num_groups(0)
 
         i = blkid * blksz + tid
 
@@ -445,12 +448,12 @@ def kernel_reduce_min_builder(dtype):
 
     group_reducer = group_fn_map[dtype]
 
-    @hsa.jit
+    @roc.jit
     def kernel_reduce_min(inp, out, nelem):
-        tid = hsa.get_local_id(0)
-        blkid = hsa.get_group_id(0)
-        blksz = hsa.get_local_size(0)
-        numgroup = hsa.get_num_groups(0)
+        tid = roc.get_local_id(0)
+        blkid = roc.get_group_id(0)
+        blksz = roc.get_local_size(0)
+        numgroup = roc.get_num_groups(0)
 
         i = blkid * blksz + tid
 

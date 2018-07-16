@@ -1,21 +1,21 @@
 from __future__ import absolute_import, print_function, division
 
-from numba import hsa
+from numba import roc
 from numba import intp, int32, uintp
 
 from .sort_ref import RADIX, RADIX_MINUS_1
 from .sort_ref import RadixSortReference, RadixSortCrossTester
-from .hsa_scan import local_inclusive_scan, shuf_wave_exclusive_scan
+from .roc_scan import local_inclusive_scan, shuf_wave_exclusive_scan
 
 _WARPSIZE = 64
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def blockwise_prefixsum_naive(data, nelem):
     last = data[nelem - 1]
-    hsa.barrier()
+    roc.barrier()
 
-    tid = hsa.get_local_id(0)
+    tid = roc.get_local_id(0)
 
     if tid == 0:
         psum = 0
@@ -24,19 +24,19 @@ def blockwise_prefixsum_naive(data, nelem):
             data[i] = psum
             psum += cur
 
-    hsa.barrier()
+    roc.barrier()
 
     return last + data[nelem - 1]
 
 
-@hsa.jit(device=True)
+@roc.jit(device=True)
 def blockwise_prefixsum(value, temp, nelem):
-    tid = hsa.get_local_id(0)
+    tid = roc.get_local_id(0)
 
     # inc_val = local_inclusive_scan_shuf(tid, value, nelem, data)
     inc_val = local_inclusive_scan(tid, value, nelem, temp)
 
-    hsa.barrier()
+    roc.barrier()
     if tid + 1 == nelem:
         # the last value stores the sum at index 0
         temp[0] = inc_val
@@ -44,31 +44,31 @@ def blockwise_prefixsum(value, temp, nelem):
         # the other value stores at the next slot for exclusive scan value
         temp[tid + 1] = inc_val
 
-    hsa.barrier()
+    roc.barrier()
 
     # Read the sum
     the_sum = temp[0]
 
-    hsa.barrier()
+    roc.barrier()
 
     # Reset first slot to zero
     if tid == 0:
         temp[0] = 0
 
-    hsa.barrier()
+    roc.barrier()
     return the_sum
 
 
 BLOCKSIZE = _WARPSIZE * 4
 
 
-class HsaRadixSortKernels(object):
+class RocRadixSortKernels(object):
     def __init__(self, block_size=BLOCKSIZE):
-        @hsa.jit(device=True)
+        @roc.jit(device=True)
         def four_way_scan(data, sm_masks, sm_blocksum, blksz, valid):
-            sm_chunkoffset = hsa.shared.array(4, dtype=int32)
+            sm_chunkoffset = roc.shared.array(4, dtype=int32)
 
-            tid = hsa.get_local_id(0)
+            tid = roc.get_local_id(0)
 
             laneid = tid & (_WARPSIZE - 1)
             warpid = tid >> 6
@@ -81,7 +81,7 @@ class HsaRadixSortKernels(object):
                     sm_masks[digit, tid] = 1
                     my_digit = digit
 
-            hsa.barrier()
+            roc.barrier()
 
             offset = 0
             base = 0
@@ -93,16 +93,16 @@ class HsaRadixSortKernels(object):
                     sm_masks[warpid, offset + laneid] = cur + base
                     base += psum
 
-                hsa.barrier()
+                roc.barrier()
                 offset += _WARPSIZE
 
-            hsa.barrier()
+            roc.barrier()
 
             # Store blocksum from the exclusive scan
             if warpid < RADIX and laneid == 0:
                 sm_blocksum[warpid] = base
 
-            hsa.barrier()
+            roc.barrier()
             # Calc chunk offset (a short exclusive scan)
             if tid == 0:
                 sm_chunkoffset[0] = 0
@@ -110,7 +110,7 @@ class HsaRadixSortKernels(object):
                 sm_chunkoffset[2] = sm_chunkoffset[1] + sm_blocksum[1]
                 sm_chunkoffset[3] = sm_chunkoffset[2] + sm_blocksum[2]
 
-            hsa.barrier()
+            roc.barrier()
             # Prepare output
             chunk_offset = -1
             scanval = -1
@@ -119,8 +119,8 @@ class HsaRadixSortKernels(object):
                 chunk_offset = sm_chunkoffset[my_digit]
                 scanval = sm_masks[my_digit, tid]
 
-            hsa.wavebarrier()
-            hsa.barrier()
+            roc.wavebarrier()
+            roc.barrier()
 
             return chunk_offset, scanval
 
@@ -128,18 +128,18 @@ class HsaRadixSortKernels(object):
 
         assert block_size >= _WARPSIZE * 4
 
-        @hsa.jit
+        @roc.jit
         def kernel_local_shuffle(data, size, shift, blocksum, localscan,
                                  shuffled, indices, store_indices):
-            tid = hsa.get_local_id(0)
-            blkid = hsa.get_group_id(0)
+            tid = roc.get_local_id(0)
+            blkid = roc.get_group_id(0)
             blksz = localscan.shape[1]
 
-            sm_mask = hsa.shared.array(shape=mask_shape, dtype=int32)
-            sm_blocksum = hsa.shared.array(shape=4, dtype=int32)
-            sm_shuffled = hsa.shared.array(shape=block_size, dtype=uintp)
-            sm_indices = hsa.shared.array(shape=block_size, dtype=uintp)
-            sm_localscan = hsa.shared.array(shape=block_size, dtype=int32)
+            sm_mask = roc.shared.array(shape=mask_shape, dtype=int32)
+            sm_blocksum = roc.shared.array(shape=4, dtype=int32)
+            sm_shuffled = roc.shared.array(shape=block_size, dtype=uintp)
+            sm_indices = roc.shared.array(shape=block_size, dtype=uintp)
+            sm_localscan = roc.shared.array(shape=block_size, dtype=int32)
             sm_localscan[tid] = -1
 
             dataid = blkid * blksz + tid
@@ -164,20 +164,20 @@ class HsaRadixSortKernels(object):
                 sm_localscan[where] = scanval
 
             # Cleanup
-            hsa.barrier()
+            roc.barrier()
             if tid < blksz:
                 # shuffled[blkid, tid] = sm_shuffled[tid]
                 if store_indices and valid:
                     indices[dataid] = sm_indices[tid]
                 localscan[blkid, tid] = sm_localscan[tid]
 
-        @hsa.jit
+        @roc.jit
         def kernel_scatter(size, shift, shuffled, scanblocksum, localscan,
                            shuffled_sorted, indices, indices_sorted,
                            store_indices):
-            tid = hsa.get_local_id(0)
-            blkid = hsa.get_group_id(0)
-            gid = hsa.get_global_id(0)
+            tid = roc.get_local_id(0)
+            blkid = roc.get_group_id(0)
+            gid = roc.get_global_id(0)
 
             if gid < size:
                 curdata = uintp(shuffled[blkid, tid])
@@ -194,8 +194,8 @@ class HsaRadixSortKernels(object):
         self.kernel_scatter = kernel_scatter
 
 
-class HsaRadixSort(RadixSortReference):
-    _kernel = HsaRadixSortKernels(block_size=BLOCKSIZE)
+class RocRadixSort(RadixSortReference):
+    _kernel = RocRadixSortKernels(block_size=BLOCKSIZE)
 
     def __init__(self):
         self.block_size = self._kernel.block_size
@@ -226,7 +226,7 @@ class HsaRadixSort(RadixSortReference):
 
 
 def test_single_pass_against_reference():
-    tester = RadixSortCrossTester(RadixSortReference, HsaRadixSort)
+    tester = RadixSortCrossTester(RadixSortReference, RocRadixSort)
     # Test sort
     tester.test_sort_reference_data()
     tester.test_sort_random(numchunk=4, chunksize=4)

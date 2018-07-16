@@ -11,14 +11,14 @@ from timeit import default_timer as timer
 from .cpu_ref import (approx_bandwidth, calc_rms, uni_kde_seq, build_support_nd,
                       multi_kde_seq)
 
-from numba import hsa
-from numba_hsa_examples.reduction.reduction import group_reduce_sum_float64
+from numba import roc
+from numba_roc_examples.reduction.reduction import group_reduce_sum_float64
 
 WAVESIZE = 64
 
 
-@hsa.jit(device=True)
-def hsa_gaussian(x, mu, sigma):
+@roc.jit(device=True)
+def roc_gaussian(x, mu, sigma):
     xmu = (x - mu)
     xmu2 = xmu * xmu
     div = 2 * sigma * sigma
@@ -26,9 +26,9 @@ def hsa_gaussian(x, mu, sigma):
     return exp / (sigma * math.sqrt(2 * math.pi))
 
 
-@hsa.jit(device=True)
-def hsa_gaussian_kernel(x):
-    return hsa_gaussian(x, 0, 1)
+@roc.jit(device=True)
+def roc_gaussian_kernel(x):
+    return roc_gaussian(x, 0, 1)
 
 
 def approx_bandwidth(xs):
@@ -40,10 +40,10 @@ def approx_bandwidth(xs):
     return n ** (-1 / (d + 4))
 
 
-def hsa_uni_kde_factory(kernel):
-    @hsa.jit
-    def hsa_uni_kde(support, samples, bandwidth, pdf):
-        i = hsa.get_global_id(0)
+def roc_uni_kde_factory(kernel):
+    @roc.jit
+    def roc_uni_kde(support, samples, bandwidth, pdf):
+        i = roc.get_global_id(0)
 
         if i < support.size:
             supp = support[i]
@@ -57,23 +57,23 @@ def hsa_uni_kde_factory(kernel):
         assert support.ndim == 1
         assert samples.ndim == 1
         assert support.size == pdf.size
-        with hsa.register(support, samples, pdf):
+        with roc.register(support, samples, pdf):
             threads = WAVESIZE * 4
             blocks = (pdf.size + threads - 1) // threads
-            hsa_uni_kde[blocks, threads](support, samples, bandwidth, pdf)
+            roc_uni_kde[blocks, threads](support, samples, bandwidth, pdf)
 
     return launcher
 
 
-hsa_uni_kde = hsa_uni_kde_factory(hsa_gaussian_kernel)
+roc_uni_kde = roc_uni_kde_factory(roc_gaussian_kernel)
 
 
-def hsa_uni_kde_ver2_factory(kernel):
-    @hsa.jit
-    def hsa_uni_kde(support, samples, bandwidth, pdf):
-        gid = hsa.get_group_id(0)
-        tid = hsa.get_local_id(0)
-        tsz = hsa.get_local_size(0)
+def roc_uni_kde_ver2_factory(kernel):
+    @roc.jit
+    def roc_uni_kde(support, samples, bandwidth, pdf):
+        gid = roc.get_group_id(0)
+        tid = roc.get_local_id(0)
+        tsz = roc.get_local_size(0)
 
         supp = support[gid]
 
@@ -94,18 +94,18 @@ def hsa_uni_kde_ver2_factory(kernel):
         assert support.ndim == 1
         assert samples.ndim == 1
         assert support.size == pdf.size
-        with hsa.register(support, samples, pdf):
+        with roc.register(support, samples, pdf):
             threads = WAVESIZE * 8
             blocks = support.size
-            hsa_uni_kde[blocks, threads](support, samples, bandwidth, pdf)
+            roc_uni_kde[blocks, threads](support, samples, bandwidth, pdf)
 
     return launcher
 
 
-hsa_uni_kde_ver2 = hsa_uni_kde_ver2_factory(hsa_gaussian_kernel)
+roc_uni_kde_ver2 = roc_uni_kde_ver2_factory(roc_gaussian_kernel)
 
 
-def test_hsa_uni_kde():
+def test_roc_uni_kde():
     np.random.seed(12345)
 
     samples = mixture_rvs([.25, .75], size=10000,
@@ -124,7 +124,7 @@ def test_hsa_uni_kde():
 
     # Run custom KDE
     pdf = np.zeros_like(support)
-    hsa_uni_kde(support, samples, bandwidth, pdf)
+    roc_uni_kde(support, samples, bandwidth, pdf)
 
     # Check value
     expect = kde.density
@@ -135,7 +135,7 @@ def test_hsa_uni_kde():
     assert rms < 1e-2, "RMS error too high: {0}".format(rms)
 
 
-def test_hsa_uni_kde_ver2():
+def test_roc_uni_kde_ver2():
     np.random.seed(12345)
 
     samples = mixture_rvs([.25, .75], size=10000,
@@ -154,7 +154,7 @@ def test_hsa_uni_kde_ver2():
 
     # Run custom KDE
     pdf = np.zeros_like(support)
-    hsa_uni_kde_ver2(support, samples, bandwidth, pdf)
+    roc_uni_kde_ver2(support, samples, bandwidth, pdf)
 
     # Check value
     expect = kde.density
@@ -165,7 +165,7 @@ def test_hsa_uni_kde_ver2():
     assert rms < 1e-2, "RMS error too high: {0}".format(rms)
 
 
-def benchmark_hsa_uni_kde():
+def benchmark_roc_uni_kde():
     def driver(imp_dict, retry=3, size=10000):
         print("Running univariate kde benchmark on size = {size}".format(
             size=size))
@@ -224,23 +224,23 @@ def benchmark_hsa_uni_kde():
 
     imp_dict['numba-cpu'] = numba_cpu_imp
 
-    def numba_hsa_ver1_imp(support, samples, bandwidth, timer):
+    def numba_roc_ver1_imp(support, samples, bandwidth, timer):
         pdf = np.zeros_like(support)
         ts = timer()
-        hsa_uni_kde(support, samples, bandwidth, pdf)
+        roc_uni_kde(support, samples, bandwidth, pdf)
         te = timer()
         return pdf, te - ts
 
-    imp_dict['numba-hsa-ver1'] = numba_hsa_ver1_imp
+    imp_dict['numba-roc-ver1'] = numba_roc_ver1_imp
 
-    def numba_hsa_ver2_imp(support, samples, bandwidth, timer):
+    def numba_roc_ver2_imp(support, samples, bandwidth, timer):
         pdf = np.zeros_like(support)
         ts = timer()
-        hsa_uni_kde_ver2(support, samples, bandwidth, pdf)
+        roc_uni_kde_ver2(support, samples, bandwidth, pdf)
         te = timer()
         return pdf, te - ts
 
-    imp_dict['numba-hsa-ver2'] = numba_hsa_ver2_imp
+    imp_dict['numba-roc-ver2'] = numba_roc_ver2_imp
 
     # Run benchmark
     for size in [5000, 10000, 15000]:
@@ -251,16 +251,16 @@ def benchmark_hsa_uni_kde():
 # -----------------------------------------------------------------------------
 # Multi KDE
 
-def hsa_multi_kde_factory(kernel):
-    @hsa.jit
-    def hsa_multi_kde(support, samples, bandwidths, pdf):
+def roc_multi_kde_factory(kernel):
+    @roc.jit
+    def roc_multi_kde(support, samples, bandwidths, pdf):
         """
         Expects 2d arrays for samples and support: (num_observations,
         num_variables)
         """
         nvar = support.shape[1]
 
-        i = hsa.get_global_id(0)
+        i = roc.get_global_id(0)
         if i < support.shape[0]:
             sum = 0
             for j in range(samples.shape[0]):
@@ -280,38 +280,38 @@ def hsa_multi_kde_factory(kernel):
         threads = WAVESIZE * 4
         blocks = (support.shape[0] + threads - 1) // threads
 
-        with hsa.register(support, samples, bandwidths, pdf):
-            hsa_multi_kde[blocks, threads](support, samples, bandwidths, pdf)
+        with roc.register(support, samples, bandwidths, pdf):
+            roc_multi_kde[blocks, threads](support, samples, bandwidths, pdf)
 
     return launcher
 
 
-hsa_multi_kde = hsa_multi_kde_factory(hsa_gaussian_kernel)
+roc_multi_kde = roc_multi_kde_factory(roc_gaussian_kernel)
 
 
-def hsa_multi_kde_ver2_factory(kernel):
+def roc_multi_kde_ver2_factory(kernel):
     from numba import float64
 
     BLOCKSIZE = WAVESIZE * 4
     MAX_NDIM = 4
     SAMPLES_SIZE = MAX_NDIM, BLOCKSIZE
 
-    @hsa.jit
-    def hsa_multi_kde(support, samples, bandwidths, pdf):
+    @roc.jit
+    def roc_multi_kde(support, samples, bandwidths, pdf):
         """
         Expects 2d arrays for samples and support: (num_observations,
         num_variables)
         """
         nvar = support.shape[1]
-        i = hsa.get_global_id(0)
-        tid = hsa.get_local_id(0)
+        i = roc.get_global_id(0)
+        tid = roc.get_local_id(0)
         valid = i < support.shape[0]
 
         sum = 0
 
-        sm_samples = hsa.shared.array(SAMPLES_SIZE, dtype=float64)
-        sm_bandwidths = hsa.shared.array(MAX_NDIM, dtype=float64)
-        sm_support = hsa.shared.array(SAMPLES_SIZE, dtype=float64)
+        sm_samples = roc.shared.array(SAMPLES_SIZE, dtype=float64)
+        sm_bandwidths = roc.shared.array(MAX_NDIM, dtype=float64)
+        sm_support = roc.shared.array(SAMPLES_SIZE, dtype=float64)
 
         if valid:
             for k in range(nvar):
@@ -323,14 +323,14 @@ def hsa_multi_kde_ver2_factory(kernel):
         for base in range(0, samples.shape[0], BLOCKSIZE):
             loadcount = min(samples.shape[0] - base, BLOCKSIZE)
 
-            hsa.barrier()
+            roc.barrier()
 
             # Preload samples tile
             if tid < loadcount:
                 for k in range(nvar):
                     sm_samples[k, tid] = samples[base + tid, k]
 
-            hsa.barrier()
+            roc.barrier()
 
             # Compute on the tile
             if valid:
@@ -354,16 +354,16 @@ def hsa_multi_kde_ver2_factory(kernel):
         threads = BLOCKSIZE
         blocks = (support.shape[0] + threads - 1) // threads
 
-        with hsa.register(support, samples, bandwidths, pdf):
-            hsa_multi_kde[blocks, threads](support, samples, bandwidths, pdf)
+        with roc.register(support, samples, bandwidths, pdf):
+            roc_multi_kde[blocks, threads](support, samples, bandwidths, pdf)
 
     return launcher
 
 
-hsa_multi_kde_ver2 = hsa_multi_kde_ver2_factory(hsa_gaussian_kernel)
+roc_multi_kde_ver2 = roc_multi_kde_ver2_factory(roc_gaussian_kernel)
 
 
-def test_hsa_multi_kde():
+def test_roc_multi_kde():
     np.random.seed(12345)
 
     nelem = 100
@@ -379,7 +379,7 @@ def test_hsa_multi_kde():
 
     pdf = np.zeros(support.shape[0], dtype=np.float64)
 
-    hsa_multi_kde(support, samples, bandwidths, pdf)
+    roc_multi_kde(support, samples, bandwidths, pdf)
 
     kde = sm.nonparametric.KDEMultivariate(samples, var_type='cc',
                                            bw=bwlist)
@@ -390,7 +390,7 @@ def test_hsa_multi_kde():
     assert rms < 1e-4, "RMS error too high: {0}".format(rms)
 
 
-def test_hsa_multi_kde_ver2():
+def test_roc_multi_kde_ver2():
     np.random.seed(12345)
 
     nelem = 100
@@ -406,7 +406,7 @@ def test_hsa_multi_kde_ver2():
 
     pdf = np.zeros(support.shape[0], dtype=np.float64)
 
-    hsa_multi_kde_ver2(support, samples, bandwidths, pdf)
+    roc_multi_kde_ver2(support, samples, bandwidths, pdf)
 
     kde = sm.nonparametric.KDEMultivariate(samples, var_type='cc',
                                            bw=bwlist)
@@ -417,7 +417,7 @@ def test_hsa_multi_kde_ver2():
     assert rms < 1e-4, "RMS error too high: {0}".format(rms)
 
 
-def benchmark_hsa_multi_kde():
+def benchmark_roc_multi_kde():
     def driver(imp_dict, retry=3, size=100):
         print("Running multivariate kde benchmark on size = {size}".format(
             size=size))
@@ -476,23 +476,23 @@ def benchmark_hsa_multi_kde():
 
     imp_dict['numba-cpu'] = numba_cpu_imp
 
-    def numba_hsa_ver1_imp(support, samples, bandwidths, timer):
+    def numba_roc_ver1_imp(support, samples, bandwidths, timer):
         pdf = np.zeros(support.shape[0], dtype=np.float64)
         ts = timer()
-        hsa_multi_kde(support, samples, bandwidths, pdf)
+        roc_multi_kde(support, samples, bandwidths, pdf)
         te = timer()
         return pdf, te - ts
 
-    imp_dict['numba-hsa-ver1'] = numba_hsa_ver1_imp
+    imp_dict['numba-roc-ver1'] = numba_roc_ver1_imp
 
-    def numba_hsa_ver2_imp(support, samples, bandwidths, timer):
+    def numba_roc_ver2_imp(support, samples, bandwidths, timer):
         pdf = np.zeros(support.shape[0], dtype=np.float64)
         ts = timer()
-        hsa_multi_kde_ver2(support, samples, bandwidths, pdf)
+        roc_multi_kde_ver2(support, samples, bandwidths, pdf)
         te = timer()
         return pdf, te - ts
 
-    imp_dict['numba-hsa-ver2'] = numba_hsa_ver2_imp
+    imp_dict['numba-roc-ver2'] = numba_roc_ver2_imp
 
     # Run benchmark
     for size in [100, 200]:  # , 300]:
@@ -501,9 +501,9 @@ def benchmark_hsa_multi_kde():
 
 
 if __name__ == "__main__":
-    # test_hsa_uni_kde()
-    # test_hsa_uni_kde_ver2()
-    # test_hsa_multi_kde()
-    # test_hsa_multi_kde_ver2()
-    benchmark_hsa_uni_kde()
-    benchmark_hsa_multi_kde()
+    # test_roc_uni_kde()
+    # test_roc_uni_kde_ver2()
+    # test_roc_multi_kde()
+    # test_roc_multi_kde_ver2()
+    benchmark_roc_uni_kde()
+    benchmark_roc_multi_kde()

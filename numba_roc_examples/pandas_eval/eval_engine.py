@@ -1,7 +1,7 @@
 from __future__ import print_function, absolute_import
 import math
 import numpy as np
-from pandas.computation import engines, ops
+from pandas.core.computation import engines, ops
 from numba import vectorize
 from numba.numpy_support import from_dtype
 
@@ -34,7 +34,7 @@ def _stringify_eval_op_tree(op, nameset):
     """
     if isinstance(op, ops.BinOp):
 
-        if op.op == '**' and op.rhs.isscalar and op.rhs.value in [2, 0.5]:
+        if op.op == '**' and op.rhs.is_scalar and op.rhs.value in [2, 0.5]:
             # Special case power operator with certain RHS constants
             lhs = _stringify_eval_op_tree(op.lhs, nameset)
             if op.rhs.value == 0.5:
@@ -50,7 +50,7 @@ def _stringify_eval_op_tree(op, nameset):
                     'rhs': _stringify_eval_op_tree(op.rhs, nameset)}
         return fmt.format(**data)
     elif isinstance(op, ops.Term):
-        if ((not op.isscalar and not op.is_datetime) or
+        if ((not op.is_scalar and not op.is_datetime) or
                 (isinstance(op.name, str) and
                      op.name.startswith('__pd_eval_local_'))):
             name = str(op)
@@ -109,7 +109,10 @@ class NumbaEngine(engines.AbstractEngine):
             # Stringify the eval tree and get arg names
             nameset = set()
             exprstr = _stringify_eval_op_tree(self.expr.terms, nameset)
-            assert set(self._args) == nameset
+            try:
+                assert set(self._args) == nameset
+            except AssertionError as e:
+                pass
 
             function_name = '__numba_pandas_eval_ufunc'
             fn = self._compile(exprstr, self._args, call_types, function_name)
@@ -123,13 +126,13 @@ class NumbaCpuEngine(NumbaEngine):
     target = 'cpu'
 
 
-class NumbaHsaEngine(NumbaEngine):
-    target = 'hsa'
+class NumbaRocEngine(NumbaEngine):
+    target = 'roc'
 
 
 def register():
-    from numba.hsa import is_available
+    from numba.roc import is_available
 
     engines._engines['numba.cpu'] = NumbaCpuEngine
     if is_available():
-        engines._engines['numba.hsa'] = NumbaHsaEngine
+        engines._engines['numba.roc'] = NumbaRocEngine

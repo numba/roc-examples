@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from numba import unittest_support as unittest
 
-from .groupby import HSAGrouper, SPEED_BARRIER
+from .groupby import ROCGrouper, SPEED_BARRIER
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -21,7 +21,7 @@ class TestCustomGrouper(unittest.TestCase):
             dct[col] = np.random.random(nelem).astype(np.float64)
         df = pd.DataFrame(dct)
         expected_grouper = df.groupby('a')
-        got_grouper = df.groupby(HSAGrouper('a'))
+        got_grouper = df.groupby(ROCGrouper('a'))
         return expected_grouper, got_grouper
 
     def test_iterator(self):

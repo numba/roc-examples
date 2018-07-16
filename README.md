@@ -1,40 +1,59 @@
-Numba HSA Examples
+Numba ROC Examples
 ==================
 
-This repository contains several example of HSA GPU programming using numba.
+This repository contains several example of ROC GPU programming using Numba.
+It is a fork and update of examples written for HSA https://github.com/ContinuumIO/numba-hsa-examples
 
-System Requirements
--------------------
+WARNING: The examples here and the underlying compilation chain are both under
+development!
 
-HSA requires 64-bit linux machines with specific platform
-requirements.
-See https://github.com/HSAFoundation/HSA-Docs-AMD/wiki/HSA-Platforms-&-Installation
-for details.
+For the purposes of this README, the `$` symbol indicates the command prompt.
 
-Installation
+
+Set up machine
+==============
+
+ * First, install the ROC stack from AMD as per the installation instructions
+   provided [here](
+https://github.com/RadeonOpenCompute/ROCm#installing-from-amd-rocm-repositories)
+
+ * Create and activate a conda environment (named e.g. `amd_roc`) as follows:
+
+ ::
+    $ conda create -n amd_roc -c numba numba roctools jupyter bokeh statsmodels\
+    python=3 h5py -y
+    $ source activate amd_roc
+
+
+ * Check that your ROC installation and AMDGCN hardware is recognised by Numba
+   with:
+
+  ::
+
+    $ numba -s
+
+
+Run examples
 ------------
 
-The installation requires the use of conda.
-Please follow the instruction at http://conda.pydata.org/docs/installation.html
-to install conda.
+There are two examples working at present, both revolving around kernel density
+estimation. The first is a Jupyter notebook, `multi_variate_kde_example.ipynb`
+which can be launched with the following:
 
-Once conda is installed, user can create a conda environment with numba and
-all the dependencies necessary to run the examples using the following command:
+  ::
 
-```bash
-conda create --name hsa_examples_env --file env_spec.txt
-```
+    $ jupyter-notebook numba_roc_examples/kerneldensity/multi_variate_kde_example.ipynb
 
-To activate the environment, run
+The second is a ``bokeh`` application that can be launched following the
+instructions in the ``README.md`` of the ``numba_roc_examples/kde_bokeh``
+directory.
 
-```bash
-source activate hsa_examples_env
-```
 
 Run Tests
 ---------
 
-Run full test suite:
+Run the full test suite, it is expected that this will fail (still under
+development):
 
 ```bash
 ./runtests.sh
@@ -49,5 +68,5 @@ Selectively run tests from subdirectories:
 Example:
 
 ```
-./runtests.sh numba_hsa_examples/kerneldensity
+./runtests.sh numba_roc_examples/kerneldensity
 ```

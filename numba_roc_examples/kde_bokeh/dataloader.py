@@ -3,9 +3,9 @@ import pandas as pd
 from functools import reduce
 import numpy as np
 import os
-import numba.hsa
+import numba.roc
 
-from numba_hsa_examples.pandas_eval import eval_engine
+from numba_roc_examples.pandas_eval import eval_engine
 
 eval_engine.register()
 
@@ -13,7 +13,7 @@ basedir = os.path.dirname(__file__)
 
 MIN_RAD = 30000
 
-QUERY_ENGINE = "numba.hsa" if numba.hsa.is_available() else "numba.cpu"
+QUERY_ENGINE = "numba.roc" if numba.roc.is_available() else "numba.cpu"
 
 
 def load_file_as_dataframe(path):

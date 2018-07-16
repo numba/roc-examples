@@ -151,12 +151,12 @@ class RadixSortDriver(object):
         return data_buffers.front[:data.size], indices_buffers.front
 
 
-class HsaRadixSortDriver(RadixSortDriver):
+class RocRadixSortDriver(RadixSortDriver):
     @classmethod
     def _init_sorter(cls):
-        from .hsa_sort import HsaRadixSort, BLOCKSIZE
+        from .roc_sort import RocRadixSort, BLOCKSIZE
 
-        return HsaRadixSort(), BLOCKSIZE
+        return RocRadixSort(), BLOCKSIZE
 
 
 def full_sort_test_helper(driver, nelem, dtype=np.intp):
@@ -178,15 +178,15 @@ def test_cpu_full_radix_sort():
     full_radix_sort_test_template(RadixSortDriver)
 
 
-def test_hsa_full_radix_sort():
-    full_radix_sort_test_template(HsaRadixSortDriver)
+def test_roc_full_radix_sort():
+    full_radix_sort_test_template(RocRadixSortDriver)
 
 
 def sort_tester(nelem):
     hi = np.random.randint(0, 0xffffffff, nelem).astype(np.uintp)
     lo = np.random.randint(0, 0xffffffff, nelem).astype(np.uintp)
     data = (hi << 64) | lo
-    sorter = HsaRadixSortDriver()
+    sorter = RocRadixSortDriver()
 
     expected = np.sort(data)
 
@@ -201,7 +201,7 @@ def argsort_tester(nelem):
     lo = np.random.randint(0, 0xffffffff, nelem).astype(np.uintp)
     data = (hi << 64) | lo
     print(data.dtype)
-    sorter = HsaRadixSortDriver()
+    sorter = RocRadixSortDriver()
 
     expected = np.sort(data, kind='mergesort')
     print(expected)

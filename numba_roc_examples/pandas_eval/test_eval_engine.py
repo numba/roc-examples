@@ -5,7 +5,7 @@ from numba import unittest_support as unittest
 import pandas as pd
 import numpy as np
 from timeit import default_timer as timer
-from numba_hsa_examples.pandas_eval import eval_engine
+from numba_roc_examples.pandas_eval import eval_engine
 
 eval_engine.register()
 
@@ -73,8 +73,8 @@ def driver_test_template(driver, expr, nelem=4, repeat=10):
     print("test cpu")
     driver(expr, engine='numba.cpu', nelem=nelem, repeat=repeat)
 
-    print("test hsa")
-    driver(expr, engine='numba.hsa', nelem=nelem, repeat=repeat)
+    print("test roc")
+    driver(expr, engine='numba.roc', nelem=nelem, repeat=repeat)
 
 
 class TestEvalEngine(unittest.TestCase):
