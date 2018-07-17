@@ -27,6 +27,8 @@ python=3 h5py -y
 $ source activate amd_roc
 ```
 
+  * Note that users should be a member of the `video` group to have access to the GPU.
+
  <!-- Note: NOT MERGED INTO NUMBA YET
 * Check that your ROC installation and AMDGCN hardware is recognised by Numba
    with:
@@ -45,6 +47,7 @@ which can be launched with the following:
 
     $ jupyter notebook numba_roc_examples/kerneldensity/
 
+You can see the rendered notebook [here](https://nbviewer.jupyter.org/github/numba/roc-examples/blob/master/numba_roc_examples/kerneldensity/multi_variate_kde_example.ipynb).
 The AMD GPU implementation used in notebook can be found [here](https://github.com/numba/roc-examples/blob/master/numba_roc_examples/kerneldensity/roc_imp.py).
 
 The second is a ``bokeh`` application that can be launched following the
