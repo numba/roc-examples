@@ -27,12 +27,14 @@ python=3 h5py -y
 $ source activate amd_roc
 ```
 
- * Check that your ROC installation and AMDGCN hardware is recognised by Numba
+ <!-- Note: NOT MERGED INTO NUMBA YET
+* Check that your ROC installation and AMDGCN hardware is recognised by Numba
    with:
 
 ```bash
 $ numba -s
 ```
+-->
 
 Run examples
 ------------
@@ -41,7 +43,9 @@ There are two examples working at present, both revolving around kernel density
 estimation. The first is a Jupyter notebook, `multi_variate_kde_example.ipynb`
 which can be launched with the following:
 
-    $ jupyter-notebook numba_roc_examples/kerneldensity/multi_variate_kde_example.ipynb
+    $ jupyter notebook numba_roc_examples/kerneldensity/
+
+The AMD GPU implementation used in notebook can be found [here](https://github.com/numba/roc-examples/blob/master/numba_roc_examples/kerneldensity/roc_imp.py).
 
 The second is a ``bokeh`` application that can be launched following the
 instructions in the ``README.md`` of the ``numba_roc_examples/kde_bokeh``
